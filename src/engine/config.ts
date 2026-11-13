@@ -4,22 +4,29 @@ import type { CardKind, StackColor, WinTier } from "./types";
  * DEMO-ONLY placeholders. These weights, value ranges and tiers are NOT a
  * validated RTP, are NOT certified, and must not be used for real-money play.
  */
-export const DEMO_CONFIG_ID = "merge-packs-demo-v0.3";
+export const DEMO_CONFIG_ID = "merge-packs-demo-v0.4";
 
 export const MICRO = 1_000_000n;
 
-export const KIND_ORDER = ["green", "blue", "gold", "purple", "red"] as const satisfies readonly CardKind[];
+export const KIND_ORDER = ["green", "blue", "gold", "purple", "red", "extra"] as const satisfies readonly CardKind[];
 
 export type Weights = Record<CardKind, number>;
 
-/** Draw weights per card, sum 100. */
+/**
+ * Draw weights per card, sum 100. When no further pack can be awarded the
+ * `extra` weight is dropped and the remaining weights are renormalised.
+ */
 export const DEMO_WEIGHTS: Weights = {
-  green: 60,
-  blue: 15,
+  green: 58,
+  blue: 14,
   gold: 4,
-  purple: 10,
-  red: 11,
+  purple: 9,
+  red: 8,
+  extra: 7,
 };
+
+/** Hard cap on packs opened in one round, the starting pack included. Prototype safety, not math. */
+export const MAX_PACKS = 6;
 
 export type ValueRange = {
   minMicros: bigint;
@@ -41,16 +48,16 @@ export type TierRule = { tier: Exclude<WinTier, "none" | "win">; minMicros: bigi
 
 /** Highest matching tier wins. Below `big` an ordinary win is shown in the HUD only. */
 export const WIN_TIERS: readonly TierRule[] = [
-  { tier: "mega", minMicros: 75_000_000n },
-  { tier: "huge", minMicros: 40_000_000n },
-  { tier: "big", minMicros: 20_000_000n },
+  { tier: "mega", minMicros: 100_000_000n },
+  { tier: "huge", minMicros: 50_000_000n },
+  { tier: "big", minMicros: 25_000_000n },
 ];
 
 export type DemoConfig = {
   id: string;
   cardsPerPack: number;
-  /** Packs opened per round. The red card can still end the round early. */
-  packsPerRound: number;
+  /** Most packs a round may open, the starting pack included. */
+  maxPacks: number;
   weights: Weights;
   ranges: Record<StackColor, ValueRange>;
   purpleFactor: number;
@@ -60,7 +67,7 @@ export type DemoConfig = {
 export const DEMO_CONFIG: DemoConfig = {
   id: DEMO_CONFIG_ID,
   cardsPerPack: 6,
-  packsPerRound: 1,
+  maxPacks: MAX_PACKS,
   weights: DEMO_WEIGHTS,
   ranges: VALUE_RANGES,
   purpleFactor: PURPLE_FACTOR,

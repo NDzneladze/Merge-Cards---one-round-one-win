@@ -4,13 +4,15 @@ export const STACK_COLORS = ["green", "blue", "gold"] as const;
 export type StackColor = (typeof STACK_COLORS)[number];
 
 /** Everything a pack can contain. */
-export type CardKind = StackColor | "purple" | "red";
+export type CardKind = StackColor | "purple" | "red" | "extra";
 
 export type ValueCard = { kind: "value"; id: string; color: StackColor; valueMicros: bigint };
 export type PurpleCard = { kind: "purple"; id: string; factor: number };
 export type RedCard = { kind: "red"; id: string };
+/** +1 PACK. Queues one more pack of the same round at no extra cost. */
+export type ExtraPackCard = { kind: "extra"; id: string };
 
-export type Card = ValueCard | PurpleCard | RedCard;
+export type Card = ValueCard | PurpleCard | RedCard | ExtraPackCard;
 
 export type StackState = {
   color: StackColor;
@@ -24,7 +26,13 @@ export type WinTier = "none" | "win" | "big" | "huge" | "mega";
 export type RoundOutcome = "bust" | "resolved";
 
 export type RoundEvent =
-  | { type: "pack_open"; packNo: number; cards: number }
+  | {
+      type: "pack_open";
+      packNo: number;
+      cards: number;
+      /** Packs already earned and still waiting behind this one. */
+      pending: number;
+    }
   | { type: "card_reveal"; card: Card; packNo: number; position: number }
   | {
       type: "stack_add";
@@ -42,13 +50,22 @@ export type RoundEvent =
       stackTotalMicros: bigint;
       totalMicros: bigint;
     }
-  | { type: "bust"; cardId: string; lostMicros: bigint }
+  | {
+      type: "pack_earned";
+      cardId: string;
+      /** Packs waiting after this award, the current pack excluded. */
+      pending: number;
+      /** Packs opened so far plus every pack waiting. */
+      totalPacks: number;
+    }
+  | { type: "bust"; cardId: string; lostMicros: bigint; cancelledPacks: number }
   | { type: "round_end"; multiplierMicros: bigint; outcome: RoundOutcome; tier: WinTier };
 
 export type ScriptedDraw =
   | { kind: StackColor; /** Multiplier as a plain number, e.g. 0.31. Drawn from the seed when omitted. */ value?: number }
   | { kind: "purple" }
-  | { kind: "red" };
+  | { kind: "red" }
+  | { kind: "extra" };
 
 export type RoundResult = {
   seed: string;
@@ -61,6 +78,10 @@ export type RoundResult = {
   payoutMicros: bigint;
   tier: WinTier;
   openedPacks: number;
+  /** +1 PACK cards revealed, including any later cancelled by a red card. */
+  earnedPacks: number;
+  /** Packs still queued when the red card hit. Zero on a safe finish. */
+  cancelledPacks: number;
   /** Final board. Every stack is empty after a red card. */
   stacks: readonly StackState[];
   /** Board value wiped by the red card. Zero on a safe finish. */
