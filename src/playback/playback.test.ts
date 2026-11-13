@@ -1,184 +1,157 @@
 import { describe, expect, it } from "vitest";
 import { resolveRound } from "../engine/round";
 import type { ScriptedDraw } from "../engine/types";
-import { applyStep, buildTimeline, initialScene, reduceEvents, reduceSteps, survivingIds } from "./scene";
+import { applyStep, buildTimeline, initialScene, liveCardIds, reduceEvents, reduceSteps } from "./scene";
 import { delayFor } from "./timing";
 
-const red: ScriptedDraw = { kind: "color", color: "red" };
-const blue: ScriptedDraw = { kind: "color", color: "blue" };
-const extra: ScriptedDraw = { kind: "extra_pack" };
-const skull: ScriptedDraw = { kind: "skull" };
-const grey: ScriptedDraw = { kind: "grey" };
+const g = (value: number): ScriptedDraw => ({ kind: "green", value });
+const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
+const au = (value: number): ScriptedDraw => ({ kind: "gold", value });
+const purple: ScriptedDraw = { kind: "purple" };
+const red: ScriptedDraw = { kind: "red" };
 
 describe("timeline", () => {
   it("expands each engine event into presentation steps in order", () => {
-    const result = resolveRound({ seed: "tl", stake: 1, script: [red, red, grey, extra, skull, grey] });
+    const result = resolveRound({ seed: "tl", stake: 1, script: [g(0.3), purple, b(1.5), red, g(0.1), g(0.1)] });
     const kinds = buildTimeline(result.events).map((step) => step.kind);
     expect(kinds).toEqual([
       "pack_enter",
       "pack_open",
       "eject",
       "travel",
-      "land",
+      "stack",
       "eject",
       "travel",
-      "land",
-      "merge_collapse",
-      "merge_pop",
+      "boost",
       "eject",
       "travel",
-      "land",
+      "stack",
       "eject",
       "travel",
-      "land",
-      "pack_earned",
-      "eject",
-      "skull_strike",
+      "bust_strike",
       "wipe",
       "settle",
     ]);
   });
 
-  it("never emits a step after the skull settles", () => {
-    const result = resolveRound({ seed: "tl-skull", stake: 1, script: [extra, skull] });
-    const kinds = buildTimeline(result.events).map((step) => step.kind);
-    expect(kinds.at(-1)).toBe("settle");
-    expect(kinds.filter((kind) => kind === "pack_enter")).toHaveLength(1);
+  it("sends the purple card to the stack the engine chose", () => {
+    const result = resolveRound({ seed: "pt", stake: 1, script: [g(0.3), b(2), b(1), purple, g(0.1), g(0.1)] });
+    const travel = buildTimeline(result.events).filter((step) => step.kind === "travel");
+    expect(travel[3]).toMatchObject({ kind: "travel", target: "blue" });
+    expect(travel[3]?.kind === "travel" && travel[3].card.kind).toBe("purple");
   });
 });
 
 describe("scene", () => {
-  it("folds the timeline to the engine settlement for wins, empty boards and skulls", () => {
+  it("folds the timeline to the engine settlement for wins, empty boards and busts", () => {
     const cases = [
       resolveRound({ seed: "play-a", stake: 10 }),
-      resolveRound({ seed: "play-b", stake: 10, script: [red, red, red, red, grey, extra, skull] }),
-      resolveRound({ seed: "play-c", stake: 10, script: [grey, grey, grey, grey, grey, grey] }),
-      resolveRound({ seed: "demo-7", stake: 10 }),
+      resolveRound({ seed: "play-b", stake: 10, script: [g(0.5), au(5), purple, red] }),
+      resolveRound({ seed: "demo-19", stake: 10 }),
+      resolveRound({ seed: "demo-335", stake: 10 }),
+      resolveRound({ seed: "demo-22", stake: 10 }),
     ];
     for (const result of cases) {
       const scene = reduceEvents(result.events);
       expect(scene.finalMicros).toBe(result.multiplierMicros);
+      expect(scene.tier).toBe(result.tier);
       expect(scene.flyer).toBeNull();
-      expect(scene.openedPacks).toBe(result.openedPacks);
-      if (result.outcome === "loss") {
-        expect(scene.status).toBe("skull");
-        expect(scene.potentialMicros).toBe(0n);
-        expect(scene.skullPhase).toBe("dead");
-        expect(scene.pendingPacks).toBe(0);
-        expect(survivingIds(scene)).toEqual([]);
-      } else if (result.multiplierMicros === 0n) {
-        expect(scene.status).toBe("no_win");
-        expect(survivingIds(scene)).toEqual([]);
+      if (result.outcome === "bust") {
+        expect(scene.status).toBe("bust");
+        expect(scene.totalMicros).toBe(0n);
+        expect(scene.bustPhase).toBe("dead");
+        expect(scene.redCard?.kind).toBe("red");
+        expect(liveCardIds(scene)).toEqual([]);
       } else {
-        expect(scene.status).toBe("won");
-        expect(survivingIds(scene)).toEqual(result.survivingBoard.map((card) => card.id).sort());
-        expect(scene.pendingPacks).toBe(0);
+        expect(scene.status).toBe(result.multiplierMicros > 0n ? "won" : "no_win");
+        expect(liveCardIds(scene)).toEqual(result.stacks.flatMap((stack) => stack.cards.map((card) => card.id)).sort());
+        for (const stack of result.stacks) {
+          expect(scene.stacks[stack.color].factor).toBe(stack.factor);
+        }
       }
     }
   });
 
-  it("shows a card leaving the pack, landing in its lane, then merging", () => {
-    const result = resolveRound({ seed: "lane", stake: 1, script: [red, blue, red, grey, grey, grey] });
+  it("shows a card ejecting, travelling, and landing on its stack", () => {
+    const result = resolveRound({ seed: "lane", stake: 1, script: [g(0.31), b(1.5), g(0.2), g(0.1), g(0.1), g(0.1)] });
     const steps = buildTimeline(result.events);
-    let scene = initialScene();
-    const at = (index: number) => {
-      scene = steps.slice(0, index + 1).reduce(applyStep, initialScene());
-      return scene;
-    };
+    const at = (index: number) => steps.slice(0, index + 1).reduce(applyStep, initialScene());
 
-    at(0);
-    expect(scene.pack).toBe("arriving");
-    expect(scene.pendingPacks).toBe(0);
-    at(1);
-    expect(scene.pack).toBe("open");
+    expect(at(0).pack).toBe("arriving");
+    expect(at(1).pack).toBe("open");
 
-    at(2);
-    expect(scene.flyer).toMatchObject({ phase: "eject", target: "lane", lane: "red" });
-    expect(scene.cardsLeftInPack).toBe(5);
-    expect(scene.lanes.red).toHaveLength(0);
+    const eject = at(2);
+    expect(eject.flyer).toMatchObject({ phase: "eject", target: null });
+    expect(eject.cardsLeftInPack).toBe(5);
+    expect(eject.stacks.green.cards).toHaveLength(0);
 
-    at(3);
-    expect(scene.flyer).toMatchObject({ phase: "land", target: "lane", lane: "red" });
-    expect(scene.lanes.red).toHaveLength(0);
+    const travel = at(3);
+    expect(travel.flyer).toMatchObject({ phase: "travel", target: "green" });
 
-    at(4);
-    expect(scene.flyer).toBeNull();
-    expect(scene.lanes.red).toHaveLength(1);
-    expect(scene.lanes.red[0]?.state).toBe("landing");
-    expect(scene.potentialMicros).toBe(100_000n);
-
-    at(5);
-    expect(scene.lanes.red[0]?.state).toBe("idle");
-    expect(scene.flyer).toMatchObject({ phase: "eject", lane: "blue" });
-
-    at(10);
-    expect(scene.lanes.red).toHaveLength(2);
-    at(11);
-    expect(scene.lanes.red.map((card) => card.state)).toEqual(["collapsing", "collapsing"]);
-    at(12);
-    expect(scene.lanes.red).toHaveLength(1);
-    expect(scene.lanes.red[0]).toMatchObject({ level: 2, state: "born" });
-    expect(scene.burst?.tone).toBe("merge");
-    expect(scene.potentialMicros).toBe(350_000n);
-  });
-
-  it("flags the extra pack moment and brings the next pack in without a new bet", () => {
-    const result = resolveRound({
-      seed: "chain",
-      stake: 1,
-      script: [extra, grey, grey, grey, grey, grey, grey, grey, grey, grey, grey, grey],
-    });
-    const steps = buildTimeline(result.events);
-    const earnedIndex = steps.findIndex((step) => step.kind === "pack_earned");
-    const afterEarned = reduceSteps(steps.slice(0, earnedIndex + 1));
-    expect(afterEarned.pendingPacks).toBe(1);
-    expect(afterEarned.burst).toMatchObject({ tone: "extra", text: "+1 PACK" });
-    const landed = reduceSteps(steps.slice(0, earnedIndex));
+    const landed = at(4);
     expect(landed.flyer).toBeNull();
-    const travel = reduceSteps(steps.slice(0, earnedIndex - 1));
-    expect(travel.flyer).toMatchObject({ phase: "land", target: "queue" });
-    const eject = reduceSteps(steps.slice(0, earnedIndex - 2));
-    expect(eject.flyer).toMatchObject({ phase: "eject", target: "queue" });
+    expect(landed.stacks.green.cards).toHaveLength(1);
+    expect(landed.stacks.green.cards[0]).toMatchObject({ valueMicros: 310_000n, state: "landing" });
+    expect(landed.stacks.green.hot).toBe(true);
+    expect(landed.totalMicros).toBe(310_000n);
+    expect(landed.burst).toMatchObject({ tone: "value", text: "+0.31×" });
 
-    const secondEnter = steps.findIndex((step) => step.kind === "pack_enter" && step.packNo === 2);
-    const scene = reduceSteps(steps.slice(0, secondEnter + 1));
-    expect(scene.packNo).toBe(2);
-    expect(scene.pendingPacks).toBe(0);
-    expect(scene.cardsLeftInPack).toBe(6);
+    const next = at(5);
+    expect(next.stacks.green.cards[0]?.state).toBe("idle");
+    expect(next.stacks.green.hot).toBe(false);
+    expect(next.flyer?.card.kind).toBe("value");
   });
 
-  it("lets the skull strike, wipe the lanes, and leave a dead board", () => {
-    const result = resolveRound({ seed: "wipe", stake: 1, script: [red, red, extra, blue, skull] });
+  it("lands the purple card on the chosen stack and shows the boost", () => {
+    const result = resolveRound({ seed: "boost", stake: 1, script: [g(0.5), g(0.25), b(2), purple, g(0.1), g(0.1)] });
     const steps = buildTimeline(result.events);
-    const strikeIndex = steps.findIndex((step) => step.kind === "skull_strike");
+    const boostIndex = steps.findIndex((step) => step.kind === "boost");
+    const travelling = reduceSteps(steps.slice(0, boostIndex));
+    expect(travelling.flyer).toMatchObject({ phase: "travel", target: "green" });
+    expect(travelling.flyer?.card.kind).toBe("purple");
+
+    const boosted = reduceSteps(steps.slice(0, boostIndex + 1));
+    expect(boosted.flyer).toBeNull();
+    expect(boosted.stacks.green.factor).toBe(2);
+    expect(boosted.stacks.green.boostKey).toBe(boosted.burst?.id);
+    expect(boosted.stacks.green.totalMicros).toBe(1_500_000n);
+    expect(boosted.totalMicros).toBe(3_500_000n);
+    expect(boosted.burst).toMatchObject({ tone: "boost", text: "×2 Green" });
+    expect(boosted.stacks.blue.factor).toBe(1);
+  });
+
+  it("lets the red card strike, wipe the stacks, and leave a dead board", () => {
+    const result = resolveRound({ seed: "wipe", stake: 1, script: [g(0.5), au(5), b(1), red] });
+    const steps = buildTimeline(result.events);
+    const strikeIndex = steps.findIndex((step) => step.kind === "bust_strike");
+    const travelling = reduceSteps(steps.slice(0, strikeIndex));
+    expect(travelling.flyer).toMatchObject({ phase: "travel", target: "center" });
+
     const strike = reduceSteps(steps.slice(0, strikeIndex + 1));
-    expect(strike.status).toBe("skull");
-    expect(strike.pendingPacks).toBe(0);
+    expect(strike.status).toBe("bust");
     expect(strike.pack).toBe("dead");
-    expect(strike.lanes.red[0]?.state).toBe("idle");
-    expect(strike.lanes.blue[0]?.state).toBe("idle");
+    expect(strike.redCard?.kind).toBe("red");
+    expect(strike.lostMicros).toBe(6_500_000n);
+    expect(strike.stacks.green.cards[0]?.state).toBe("idle");
 
     const wiped = reduceSteps(steps.slice(0, strikeIndex + 2));
-    expect(wiped.lanes.red.every((card) => card.state === "dying")).toBe(true);
-    expect(wiped.lanes.blue.every((card) => card.state === "dying")).toBe(true);
-    expect(wiped.potentialMicros).toBe(0n);
-    expect(survivingIds(wiped)).toEqual([]);
+    expect(wiped.stacks.green.cards.every((card) => card.state === "dying")).toBe(true);
+    expect(wiped.stacks.gold.cards.every((card) => card.state === "dying")).toBe(true);
+    expect(wiped.totalMicros).toBe(0n);
+    expect(liveCardIds(wiped)).toEqual([]);
 
     const settled = reduceSteps(steps);
     expect(settled.finalMicros).toBe(0n);
-    expect(settled.skullPhase).toBe("dead");
+    expect(settled.bustPhase).toBe("dead");
   });
 
   it("changes only timing when playback speed changes", () => {
-    const result = resolveRound({ seed: "speed", stake: 9, script: [red, red, grey, grey, grey, grey] });
-    const atOne = reduceEvents(result.events);
-    const atInstant = reduceEvents(result.events);
-    expect(atOne).toEqual(atInstant);
-    expect(delayFor("merge_pop", "1x")).toBeGreaterThan(delayFor("merge_pop", "2x"));
-    expect(delayFor("eject", "2x")).toBeGreaterThan(0);
-    expect(delayFor("skull_strike", "instant")).toBe(0);
-    const again = resolveRound({ seed: "speed", stake: 9, script: [red, red, grey, grey, grey, grey] });
-    expect(again.payoutMicros).toBe(result.payoutMicros);
+    const result = resolveRound({ seed: "speed", stake: 9 });
+    const again = resolveRound({ seed: "speed", stake: 9 });
+    expect(reduceEvents(result.events)).toEqual(reduceEvents(again.events));
     expect(buildTimeline(again.events)).toEqual(buildTimeline(result.events));
+    expect(delayFor("boost", "1x")).toBeGreaterThan(delayFor("boost", "2x"));
+    expect(delayFor("eject", "2x")).toBeGreaterThan(0);
+    expect(delayFor("bust_strike", "instant")).toBe(0);
   });
 });
