@@ -4,7 +4,7 @@ You are a senior frontend/gameplay engineer and product-minded game developer. B
 
 Repository: https://github.com/NDzneladze/Merge-Cards---one-round-one-win
 
-**Before coding**: read `README.md`, `docs/GAME_CONCEPT_V0.1.md`, and `docs/MATH_MODEL_NOTES.md`. If a rule below conflicts with the GDD, use the GDD. The reference https://merge-cards.vercel.app/ is visual/inspiration only; if unavailable, do not block or guess hidden rules. This is an **original instant-game adaptation** for a Rainbet Originals concept.
+**Before coding**: the documentation currently lives on the unmerged `docs/merge-packs-v0-1-spec` branch (Draft PR #1). Fetch and check out that branch, then read `README.md`, `docs/GAME_CONCEPT_V0.1.md`, and `docs/MATH_MODEL_NOTES.md`. Create your feature branch FROM this docs branch, not from an empty/default-only checkout. If a rule below conflicts with the GDD, use the GDD. The reference https://merge-cards.vercel.app/ is visual/inspiration only; if unavailable, do not block or guess hidden rules. This is an **original instant-game adaptation** for a Rainbet Originals concept.
 
 ## Outcome
 A responsive, attractive, actually playable **one-bet / one-round / one-outcome** card-pack merging instant-game DEMO. Prioritize the **working mechanic**, readable state transitions, and tests over decoration.
@@ -79,11 +79,11 @@ Represent events explicitly (`pack_open`, `card_reveal`, `merge`, `pack_earned`,
 - Basic UI test: Play / result / replay; mobile overflow.
 
 ### Delivery workflow
-1. Make a **feature branch** such as `feat/merge-packs-v0-1`; keep `main` unchanged.
+1. Fetch the docs branch and create **`feat/merge-packs-v0-1` FROM `origin/docs/merge-packs-v0-1-spec`**. Keep `main` unchanged. If docs PR #1 has already merged, you may instead branch from the updated `main`.
 2. Implement a complete first playable, not just a mockup. Keep placeholders in `config.ts` and label unapproved math in UI/docs.
 3. Run `npm install`, typecheck, tests and build; report actual results. Fix failures before delivery.
 4. Add useful README run/test instructions; document assumptions and known limitations.
-5. Commit and push branch; create a **Draft PR** into `main`. Do **not** merge without approval.
+5. Commit and push the feature branch. While docs PR #1 is unmerged, create a **stacked Draft PR targeting `docs/merge-packs-v0-1-spec`** to avoid duplicating the docs diff; after docs PR #1 merges, retarget the feature PR to `main`. If docs are already merged, target `main` directly. **Do not merge without approval.**
 6. If Vercel is connected/authorized, provide a **genuinely public preview URL** accessible without Vercel login (verify it). If not available, say so explicitly; never invent a URL or call a protected preview public.
 7. Finish with short summary: files/architecture changed, tests passed/failed, PR URL, deployment URL if verified, unresolved math/design questions.
 
