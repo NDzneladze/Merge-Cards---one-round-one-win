@@ -1,21 +1,28 @@
-import type { RoundEvent } from "../engine/types";
+import type { Step } from "./scene";
 
 export type PlaybackSpeed = "1x" | "2x" | "instant";
 
 export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = ["1x", "2x", "instant"];
 
 /** Milliseconds at 1×. Speed only scales these delays; it never changes the transcript. */
-const BASE_MS: Record<RoundEvent["type"], number> = {
-  pack_open: 380,
-  card_reveal: 170,
-  merge: 320,
-  pack_earned: 240,
-  skull: 640,
-  round_end: 40,
+const BASE_MS: Record<Step["kind"], number> = {
+  pack_enter: 520,
+  pack_open: 420,
+  eject: 360,
+  land: 380,
+  merge_collapse: 260,
+  merge_pop: 380,
+  pack_earned: 620,
+  skull_strike: 820,
+  wipe: 620,
+  settle: 160,
 };
 
-export function delayFor(type: RoundEvent["type"], speed: PlaybackSpeed): number {
+export function speedFactor(speed: PlaybackSpeed): number {
   if (speed === "instant") return 0;
-  const base = BASE_MS[type];
-  return speed === "2x" ? Math.round(base / 2) : base;
+  return speed === "2x" ? 0.5 : 1;
+}
+
+export function delayFor(kind: Step["kind"], speed: PlaybackSpeed): number {
+  return Math.round(BASE_MS[kind] * speedFactor(speed));
 }

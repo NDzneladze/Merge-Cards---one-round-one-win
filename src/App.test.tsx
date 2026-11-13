@@ -11,7 +11,7 @@ beforeEach(() => {
 });
 
 async function pinSeed(user: ReturnType<typeof userEvent.setup>, seed: string) {
-  await user.click(screen.getByText("Seed"));
+  await user.click(screen.getByText("Examples & seed"));
   const input = screen.getByTestId("seed-input");
   await user.clear(input);
   await user.type(input, seed);
@@ -46,16 +46,39 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(afterTwo)));
   });
 
-  it("plays the featured Skull seed to an instant 0× wipe", async () => {
+  it("plays the featured Skull seed to an instant 0× wipe with dead lanes", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId("speed-instant"));
+    await user.click(screen.getByText("Examples & seed"));
     await user.click(screen.getByRole("button", { name: "Skull" }));
     await user.click(screen.getByTestId("play-button"));
     expect(await screen.findByTestId("result-title")).toHaveTextContent("SKULL 0.00×");
     expect(screen.getByTestId("result-payout")).toHaveTextContent("Payout 0.00 credits");
+    expect(screen.getByTestId("stage")).toHaveClass("status-skull", "skull-dead");
+    expect(screen.getByTestId("pending-meter")).toHaveTextContent("0");
+    expect(screen.getByTestId("potential")).toHaveTextContent("0.00×");
+    const dying = document.querySelectorAll(".pile-card.is-dying");
+    expect(dying.length).toBeGreaterThan(0);
     const balance = creditsToMicros(STARTING_BALANCE_CREDITS) - creditsToMicros(10);
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(balance)));
+  });
+
+  it("builds the chain example into stacked lanes with six packs and no pending packs", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByTestId("speed-instant"));
+    await user.click(screen.getByText("Examples & seed"));
+    await user.click(screen.getByRole("button", { name: "Chain" }));
+    await user.click(screen.getByTestId("play-button"));
+    expect(await screen.findByTestId("result-title")).toHaveTextContent("FINAL WIN 3.85×");
+    expect(screen.getByTestId("pack-meter")).toHaveTextContent("6");
+    expect(screen.getByTestId("pending-meter")).toHaveTextContent("0");
+    expect(screen.getByTestId("stage")).toHaveClass("status-won");
+    const piles = document.querySelectorAll(".pile-card");
+    expect(piles.length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".pile-card.is-dying")).toHaveLength(0);
+    expect(document.querySelector(".flyer")).toBeNull();
   });
 
   it("explains Extra Pack and Skull in the rules, and keeps the shell on a narrow layout", async () => {
