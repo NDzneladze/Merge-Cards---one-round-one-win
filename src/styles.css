@@ -457,12 +457,12 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 }
 .face-back { transform: rotateY(180deg); }
 .face-back .pcard, .face-front .pcard { width: var(--fly-w); height: var(--fly-h); }
-.phase-eject .flyer-move { animation: eject calc(0.34s * var(--anim)) cubic-bezier(0.2, 0.8, 0.3, 1.1) both; }
-.phase-eject .flyer-flip { animation: flip calc(0.34s * var(--anim)) ease-out both; }
-.phase-land .flyer-move { animation: travel calc(0.4s * var(--anim)) cubic-bezier(0.4, 0.1, 0.6, 1) both; }
-.phase-land .flyer-hop { animation: hop calc(0.4s * var(--anim)) ease-in-out both; }
-.phase-land.target-discard .flyer-flip { animation: fade-out calc(0.4s * var(--anim)) ease-in both; }
-.phase-land.target-queue .flyer-flip { animation: shrink-in calc(0.4s * var(--anim)) ease-in both; }
+.phase-eject .flyer-move { animation: eject calc(0.3s * var(--anim)) cubic-bezier(0.2, 0.8, 0.3, 1.1) both; }
+.phase-eject .flyer-flip { animation: flip calc(0.3s * var(--anim)) ease-out both; }
+.phase-land .flyer-move { animation: travel calc(0.36s * var(--anim)) cubic-bezier(0.4, 0.1, 0.6, 1) both; }
+.phase-land .flyer-hop { animation: hop calc(0.36s * var(--anim)) ease-in-out both; }
+.phase-land.target-discard .flyer-flip { animation: fade-out calc(0.36s * var(--anim)) ease-in both; }
+.phase-land.target-queue .flyer-flip { animation: shrink-in calc(0.36s * var(--anim)) ease-in both; }
 
 /* skull flash */
 .skull-flash {
