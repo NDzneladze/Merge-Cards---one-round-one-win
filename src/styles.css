@@ -580,6 +580,10 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .eyebrow { font-size: 0.6rem; }
   .stage { padding: 10px 8px 10px; border-radius: 18px; }
   .hero { grid-template-columns: 58px minmax(0, 1fr) 58px; padding-top: 34px; min-height: calc(var(--pack-h) + 50px); }
+  .hero.is-settled { grid-template-columns: minmax(0, 1fr); padding-top: 8px; }
+  .hero.is-settled .side { display: none; }
+  .result { padding: 14px 12px 12px; }
+  .result-actions .play { font-size: 0.95rem; white-space: nowrap; }
   .burst { top: -28px; }
   .discard, .queue { width: 54px; min-height: 96px; padding: 6px 4px; }
   .discard-pile, .queue-pile { width: 34px; height: 42px; }

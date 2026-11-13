@@ -99,7 +99,7 @@ export function PackStage({ scene, speed, result, settled, canPlay, onAgain, onP
         />
       </div>
 
-      <div className="hero">
+      <div className={`hero ${settled && result ? "is-settled" : ""}`}>
         <div className="side side-left">
           <div ref={discardRef} className={`discard ${scene.discarded > 0 ? "has-cards" : ""}`} aria-label="Grey cards">
             <span className="side-label">Grey</span>
