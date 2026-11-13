@@ -1,6 +1,27 @@
 # 🎴 Merge Packs — One Round, One Win
 
-**Status:** Concept / v0.1 prototype specification · **Product:** Rainbet Originals (concept, not a released Rainbet game) · **Owner:** Mikalai Dzneladze
+**Status:** v0.1 playable prototype · **Product:** Rainbet Originals (concept, not a released Rainbet game) · **Owner:** Mikalai Dzneladze
+
+## Run the v0.1 prototype
+
+```bash
+npm install
+npm run dev
+```
+
+Other checks:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+The dev server is a local demo. Stake, payout and balance are fake credits stored in `sessionStorage`. Playback speed (`1×`, `2×`, Instant) only changes animation timing. Pin a seed in the panel to repeat a deal; a new Play is always a new bet.
+
+Placeholder math lives in `src/engine/config.ts`. It is **not** a validated RTP. Level 6 is the configured ceiling (two level-6 cards do not merge). With the six-pack cap, a natural chain of level-1 cards tops out at level 5, because opening six packs spends five card slots on Extra Packs (31 colored cards left; level 6 needs 32).
+
+Architecture: `src/engine` is a pure seeded resolver (`resolveRound`) with no timers or `Math.random`. React replays the immutable event log. `src/playback` folds that log into the board the player sees.
 
 **Reference:** [Merge Cards demo](https://merge-cards.vercel.app/). This is a new one-bet, one-round adaptation, **not** a claim that the original demo already has these rules.
 
