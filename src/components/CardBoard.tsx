@@ -1,66 +1,68 @@
 import { forwardRef } from "react";
-import { COLORS, type Color } from "../engine/types";
-import { formatMultiplier, levelMicros, sumLevels } from "../engine/money";
-import { labelColor, type LaneCard } from "../playback/scene";
+import { STACK_COLORS, type StackColor } from "../engine/types";
+import { formatMultiplier } from "../engine/money";
+import { labelColor, type StackView } from "../playback/scene";
+import { Gem } from "./CardFace";
 
 type Props = {
-  lanes: Record<Color, LaneCard[]>;
+  stacks: Record<StackColor, StackView>;
   dead: boolean;
-  registerLane: (color: Color, element: HTMLDivElement | null) => void;
+  registerSlot: (color: StackColor, element: HTMLDivElement | null) => void;
 };
 
 /**
- * Four fixed merge lanes. Each lane is a pile: the highest level sits on top,
- * lower levels peek out underneath. Because equal cards merge at once, a lane
- * holds at most one card per level, so the pile stays short and readable.
+ * Three compact compartments. Each new card lands on top of the previous one,
+ * offset upward so every card's value foot stays visible. A purple boost is
+ * shown as a ×N chip on the compartment and multiplies its total.
  */
-export function CardBoard({ lanes, dead, registerLane }: Props) {
+export function CardBoard({ stacks, dead, registerSlot }: Props) {
   return (
-    <div className={`lanes ${dead ? "is-dead" : ""}`} aria-label="Merge lanes">
-      {COLORS.map((color) => (
-        <Lane
-          key={color}
-          color={color}
-          cards={lanes[color]}
-          ref={(element) => registerLane(color, element)}
-        />
+    <div className={`board ${dead ? "is-dead" : ""}`} aria-label="Card stacks">
+      {STACK_COLORS.map((color) => (
+        <Compartment key={color} stack={stacks[color]} ref={(element) => registerSlot(color, element)} />
       ))}
     </div>
   );
 }
 
-type LaneProps = { color: Color; cards: LaneCard[] };
-
-const Lane = forwardRef<HTMLDivElement, LaneProps>(function Lane({ color, cards }, ref) {
-  const live = cards.filter((card) => card.state !== "dying");
-  const total = sumLevels(live.map((card) => card.level));
-  const ordered = [...cards].sort((a, b) => a.level - b.level || a.id.localeCompare(b.id));
-  const active = cards.some((card) => card.state === "landing" || card.state === "born" || card.state === "collapsing");
-
+const Compartment = forwardRef<HTMLDivElement, { stack: StackView }>(function Compartment({ stack }, ref) {
+  const live = stack.cards.filter((card) => card.state !== "dying");
+  const boosted = stack.factor > 1;
   return (
-    <section className={`lane tone-${color} ${active ? "is-active" : ""} ${cards.length === 0 ? "is-empty" : ""}`} aria-label={`${labelColor(color)} lane`}>
-      <header className="lane-head">
-        <span>{labelColor(color)}</span>
-        <strong data-testid={`lane-${color}-total`}>{live.length === 0 ? "—" : formatMultiplier(total)}</strong>
+    <section
+      className={`comp tone-${stack.color} ${stack.hot ? "is-hot" : ""} ${live.length === 0 ? "is-empty" : ""} ${boosted ? "is-boosted" : ""}`}
+      aria-label={`${labelColor(stack.color)} stack`}
+    >
+      <header className="comp-head">
+        <span className="comp-name">{labelColor(stack.color)}</span>
+        {boosted ? (
+          <span key={stack.boostKey ?? "chip"} className="comp-chip" data-testid={`chip-${stack.color}`}>
+            ×{stack.factor}
+          </span>
+        ) : null}
       </header>
-      <div className="pile">
-        <div className="pile-slot" ref={ref} aria-hidden="true">
-          <span>{live.length === 0 ? "empty" : "next"}</span>
+      <div className="comp-well" style={{ ["--n" as string]: Math.max(stack.cards.length, 1) }}>
+        <div className="comp-slot" ref={ref} aria-hidden="true" style={{ ["--i" as string]: live.length }}>
+          <Gem />
         </div>
-        {ordered.map((card, index) => (
+        {stack.cards.map((card, index) => (
           <div
             key={card.id}
-            className={`pile-card tone-${color} is-${card.state}`}
+            className={`stack-card tone-${stack.color} is-${card.state}`}
             style={{ ["--i" as string]: index }}
-            data-testid={`lane-card-${card.id}`}
+            data-testid={`stack-card-${card.id}`}
           >
-            <span className="pile-level">L{card.level}</span>
-            <span className="pile-tag">
-              L{card.level} · {formatMultiplier(levelMicros(card.level))}
-            </span>
+            <span className="stack-card-index">{labelColor(stack.color)}</span>
+            <strong className="stack-card-value">{formatMultiplier(card.valueMicros)}</strong>
+            <span className="stack-card-foot">{formatMultiplier(card.valueMicros)}</span>
           </div>
         ))}
+        {stack.boostKey ? <div key={stack.boostKey} className="comp-flash" aria-hidden="true" /> : null}
       </div>
+      <footer className="comp-total">
+        <span>{live.length} card{live.length === 1 ? "" : "s"}</span>
+        <strong data-testid={`stack-${stack.color}-total`}>{live.length === 0 && !boosted ? "—" : formatMultiplier(stack.totalMicros)}</strong>
+      </footer>
     </section>
   );
 });

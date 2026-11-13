@@ -103,7 +103,7 @@ export function BetPanel(props: Props) {
             ))}
           </div>
           <label className="seed-field">
-            <span>Pinned seed repeats the same cards. Clear it for a fresh deal. Play still spends one stake.</span>
+            <span>A pinned seed repeats the same cards. Clear it for a fresh deal. Play always spends one stake.</span>
             <input
               data-testid="seed-input"
               value={props.seed}
