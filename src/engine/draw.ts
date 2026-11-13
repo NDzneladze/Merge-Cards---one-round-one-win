@@ -1,36 +1,36 @@
-import { TOKEN_ORDER, type Weights } from "./config";
+import { KIND_ORDER, type ValueRange, type Weights } from "./config";
 import type { Rng } from "./rng";
-import type { Token } from "./types";
+import type { CardKind } from "./types";
 
-export function eligibleWeights(
-  allowExtra: boolean,
-  weights: Weights,
-): { token: Token; weight: number }[] {
-  return TOKEN_ORDER.filter((token) => allowExtra || token !== "extra_pack")
-    .map((token) => ({ token, weight: weights[token] }))
-    .filter((entry) => entry.weight > 0);
+export function weightTotal(weights: Weights): number {
+  return KIND_ORDER.reduce((sum, kind) => sum + weights[kind], 0);
 }
 
-export function weightTotal(pool: { weight: number }[]): number {
-  return pool.reduce((sum, entry) => sum + entry.weight, 0);
-}
-
-/**
- * Draw one token. Extra Pack is absent from the pool when `allowExtra` is false,
- * so a card that cannot grant a pack is never produced.
- */
-export function drawToken(rng: Rng, allowExtra: boolean, weights: Weights): Token {
-  const pool = eligibleWeights(allowExtra, weights);
-  const total = weightTotal(pool);
+/** Draw one card kind by weight, in `KIND_ORDER`. */
+export function drawKind(rng: Rng, weights: Weights): CardKind {
+  const total = weightTotal(weights);
   if (total <= 0) {
-    throw new Error("No eligible card weights");
+    throw new Error("No card weights");
   }
   let roll = rng.nextInt(total);
-  for (const entry of pool) {
-    if (roll < entry.weight) return entry.token;
-    roll -= entry.weight;
+  for (const kind of KIND_ORDER) {
+    const weight = weights[kind];
+    if (weight <= 0) continue;
+    if (roll < weight) return kind;
+    roll -= weight;
   }
-  const last = pool[pool.length - 1];
-  if (!last) throw new Error("Empty draw pool");
-  return last.token;
+  return KIND_ORDER[KIND_ORDER.length - 1]!;
+}
+
+export function rangeSteps(range: ValueRange): number {
+  if (range.stepMicros <= 0n || range.maxMicros < range.minMicros) {
+    throw new Error("Invalid value range");
+  }
+  return Number((range.maxMicros - range.minMicros) / range.stepMicros) + 1;
+}
+
+/** Uniform value on the range's step grid, inclusive of both ends. */
+export function drawValue(rng: Rng, range: ValueRange): bigint {
+  const steps = rangeSteps(range);
+  return range.minMicros + range.stepMicros * BigInt(rng.nextInt(steps));
 }

@@ -1,79 +1,121 @@
 import type { Card } from "../engine/types";
-import { formatMultiplier, levelMicros } from "../engine/money";
+import { formatMultiplier } from "../engine/money";
 import { labelColor } from "../playback/scene";
+
+export type CardSize = "fly" | "stack" | "hero";
 
 type Props = {
   card: Card;
-  size?: "fly" | "lane";
+  size?: CardSize;
   className?: string;
 };
 
 export function toneOf(card: Card): string {
-  return card.kind === "color" ? card.color : card.kind;
+  return card.kind === "value" ? card.color : card.kind;
 }
 
-export function CardFace({ card, size = "lane", className = "" }: Props) {
+/** Portrait 5:7 card with a corner index, a centre emblem and a value foot. */
+export function CardFace({ card, size = "stack", className = "" }: Props) {
   const tone = toneOf(card);
   return (
-    <article className={`pcard size-${size} tone-${tone} ${className}`.trim()} data-tone={tone}>
-      <CardBody card={card} />
+    <article className={`card size-${size} tone-${tone} ${className}`.trim()} data-tone={tone}>
+      <div className="card-sheen" aria-hidden="true" />
+      <div className="card-frame">
+        <CardBody card={card} />
+      </div>
     </article>
   );
 }
 
-export function CardBack({ size = "fly", className = "" }: { size?: "fly" | "lane"; className?: string }) {
+export function CardBack({ size = "fly", className = "" }: { size?: CardSize; className?: string }) {
   return (
-    <article className={`pcard size-${size} tone-back ${className}`.trim()} aria-hidden="true">
-      <span className="pcard-back-mark">?</span>
+    <article className={`card size-${size} tone-back ${className}`.trim()} aria-hidden="true">
+      <div className="card-frame card-back-frame">
+        <span className="card-back-mark">
+          <Gem />
+        </span>
+      </div>
     </article>
   );
 }
 
 function CardBody({ card }: { card: Card }) {
-  if (card.kind === "color") {
+  if (card.kind === "value") {
+    const value = formatMultiplier(card.valueMicros);
     return (
       <>
-        <span className="pcard-kicker">{labelColor(card.color)}</span>
-        <strong className="pcard-title">L{card.level}</strong>
-        <span className="pcard-value">{formatMultiplier(levelMicros(card.level))}</span>
+        <header className="card-head">
+          <span className="card-index">{labelColor(card.color)}</span>
+          <Gem className="card-pip" />
+        </header>
+        <div className="card-center">
+          <strong className="card-value">{value}</strong>
+        </div>
+        <footer className="card-foot">
+          <span>{value}</span>
+        </footer>
       </>
     );
   }
-  if (card.kind === "grey") {
+  if (card.kind === "purple") {
     return (
       <>
-        <span className="pcard-kicker">Grey</span>
-        <strong className="pcard-title">0×</strong>
-        <span className="pcard-value">No merge</span>
-      </>
-    );
-  }
-  if (card.kind === "extra_pack") {
-    return (
-      <>
-        <span className="pcard-kicker">Bonus</span>
-        <strong className="pcard-title">+1</strong>
-        <span className="pcard-value">Pack</span>
+        <header className="card-head">
+          <span className="card-index">Boost</span>
+          <Star className="card-pip" />
+        </header>
+        <div className="card-center">
+          <Star className="card-emblem" />
+          <strong className="card-value">×{card.factor}</strong>
+        </div>
+        <footer className="card-foot">
+          <span>Biggest stack</span>
+        </footer>
       </>
     );
   }
   return (
     <>
-      <span className="pcard-kicker">Danger</span>
-      <strong className="pcard-title">
-        <SkullMark />
-      </strong>
-      <span className="pcard-value">Skull</span>
+      <header className="card-head">
+        <span className="card-index">Red</span>
+        <Cross className="card-pip" />
+      </header>
+      <div className="card-center">
+        <Cross className="card-emblem" />
+        <strong className="card-value">STOP</strong>
+      </div>
+      <footer className="card-foot">
+        <span>Round over</span>
+      </footer>
     </>
   );
 }
 
-export function SkullMark({ className = "" }: { className?: string }) {
+export function Gem({ className = "" }: { className?: string }) {
   return (
-    <svg className={`skull-mark ${className}`.trim()} viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M7 3h10l4 6-9 12L3 9l4-6Zm1.2 2L6 8.6h3.3L8.2 5Zm7.6 0-1.1 3.6H18L15.8 5ZM9.6 5l1.2 3.6h2.4L14.4 5H9.6Zm-3.1 5.6 4.3 7.2-1.6-7.2H6.5Zm4.7 0 .8 8 .8-8h-1.6Zm4.3 0-1.6 7.2 4.3-7.2h-2.7Z" />
+    </svg>
+  );
+}
+
+export function Star({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path fill="currentColor" d="M12 1.5c.6 3.9 3.6 6.9 7.5 7.5v6c-3.9.6-6.9 3.6-7.5 7.5-.6-3.9-3.6-6.9-7.5-7.5v-6c3.9-.6 6.9-3.6 7.5-7.5Z" />
+    </svg>
+  );
+}
+
+export function Cross({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path
-        fill="currentColor"
-        d="M32 6C18 6 8 16 8 29c0 7 3 12 8 16v7a4 4 0 0 0 4 4h4v-6h4v6h8v-6h4v6h4a4 4 0 0 0 4-4v-7c5-4 8-9 8-16C56 16 46 6 32 6Zm-9 30a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm18 0a6 6 0 1 1 0-12 6 6 0 0 1 0 12Zm-9 9-4-7h8l-4 7Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3.4"
+        strokeLinecap="round"
+        d="M5 5l14 14M19 5 5 19"
       />
     </svg>
   );

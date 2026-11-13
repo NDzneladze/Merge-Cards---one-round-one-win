@@ -1,33 +1,63 @@
-import type { DemoConfig } from "./config";
+import type { DemoConfig, TierRule } from "./config";
 import { DEMO_CONFIG } from "./config";
-import { drawToken } from "./draw";
-import { resolveMerges } from "./merge";
-import { payoutMicros, sumLevels } from "./money";
+import { drawKind, drawValue } from "./draw";
+import { boardTotal, payoutMicros, stackTotal, valueToMicros } from "./money";
 import { createRng } from "./rng";
-import type { Card, ColorCard, RoundEvent, RoundResult, ScriptedDraw, Token } from "./types";
+import {
+  STACK_COLORS,
+  type Card,
+  type RoundEvent,
+  type RoundResult,
+  type ScriptedDraw,
+  type StackColor,
+  type StackState,
+  type WinTier,
+} from "./types";
 
 export type ResolveInput = {
   seed: string;
   stake: number;
   config?: DemoConfig;
-  /**
-   * Test/demo override. Production play leaves this empty and draws from the
-   * seeded RNG. An Extra Pack step that cannot be honored is discarded and
-   * replaced by a legal seeded draw — a dead +1 is never emitted.
-   */
+  /** Test/demo override. Production play leaves this empty and draws from the seed. */
   script?: readonly ScriptedDraw[];
 };
 
-function scriptToken(step: ScriptedDraw): Token {
-  if (step.kind === "color") return step.color;
-  return step.kind;
+/**
+ * Purple targeting rule:
+ *   1. the stack with the most cards,
+ *   2. tie → the stack with the highest current total,
+ *   3. tie → the leftmost stack.
+ * Only stacks that hold at least one card are eligible. If every stack is
+ * empty the boost lands on the leftmost stack and applies to whatever
+ * arrives there later.
+ */
+export function chooseBoostTarget(stacks: readonly StackState[]): StackColor {
+  const eligible = stacks.filter((stack) => stack.cards.length > 0);
+  const pool = eligible.length > 0 ? eligible : stacks;
+  let best = pool[0];
+  if (!best) throw new Error("No stacks to boost");
+  for (const stack of pool.slice(1)) {
+    if (stack.cards.length > best.cards.length) {
+      best = stack;
+      continue;
+    }
+    if (stack.cards.length === best.cards.length && stackTotal(stack) > stackTotal(best)) {
+      best = stack;
+    }
+  }
+  return best.color;
 }
 
-function cardFromToken(token: Token, id: string): Card {
-  if (token === "grey") return { kind: "grey", id };
-  if (token === "extra_pack") return { kind: "extra_pack", id };
-  if (token === "skull") return { kind: "skull", id };
-  return { kind: "color", id, color: token, level: 1 };
+export function tierFor(multiplierMicros: bigint, tiers: readonly TierRule[]): WinTier {
+  if (multiplierMicros <= 0n) return "none";
+  for (const rule of tiers) {
+    if (multiplierMicros >= rule.minMicros) return rule.tier;
+  }
+  return "win";
+}
+
+function emptyStacks(): StackState[] {
+  return STACK_COLORS.map((color) => ({ color, cards: [], factor: 1 }));
 }
 
 /**
@@ -36,11 +66,11 @@ function cardFromToken(token: Token, id: string): Card {
  */
 export function resolveRound(input: ResolveInput): RoundResult {
   const config = input.config ?? DEMO_CONFIG;
-  if (config.cardsPerPack !== 6) {
-    throw new Error("v0.1 packs contain exactly six cards");
+  if (!Number.isInteger(config.cardsPerPack) || config.cardsPerPack < 1) {
+    throw new Error("cardsPerPack must be a positive integer");
   }
-  if (config.maxOpenedPacks < 1) {
-    throw new Error("maxOpenedPacks must be at least 1");
+  if (!Number.isInteger(config.packsPerRound) || config.packsPerRound < 1) {
+    throw new Error("packsPerRound must be a positive integer");
   }
 
   const rng = createRng(input.seed);
@@ -52,81 +82,80 @@ export function resolveRound(input: ResolveInput): RoundResult {
     return id;
   };
 
-  const events: RoundEvent[] = [];
-  let pending = 1;
-  let opened = 0;
-  let board: ColorCard[] = [];
-  let outcome: RoundResult["outcome"] = "resolved";
-  let multiplierMicros = 0n;
-  let potentialLostMicros = 0n;
-  let ended = false;
-
   const drawCard = (): Card => {
-    const allowExtra = opened + pending < config.maxOpenedPacks;
-    let token: Token;
     const scripted = script.shift();
-    if (scripted && !(scripted.kind === "extra_pack" && !allowExtra)) {
-      token = scriptToken(scripted);
-    } else {
-      token = drawToken(rng, allowExtra, config.weights);
-    }
-    if (token === "extra_pack" && !allowExtra) {
-      throw new Error("Refusing to reveal an Extra Pack that cannot be honored");
-    }
-    return cardFromToken(token, nextId());
+    const kind = scripted ? scripted.kind : drawKind(rng, config.weights);
+    const id = nextId();
+    if (kind === "red") return { kind: "red", id };
+    if (kind === "purple") return { kind: "purple", id, factor: config.purpleFactor };
+    const valueMicros =
+      scripted && scripted.kind === kind && "value" in scripted && scripted.value !== undefined
+        ? valueToMicros(scripted.value)
+        : drawValue(rng, config.ranges[kind]);
+    return { kind: "value", id, color: kind, valueMicros };
   };
 
-  while (pending > 0 && !ended) {
-    pending -= 1;
-    opened += 1;
-    if (opened > config.maxOpenedPacks || opened + pending > config.maxOpenedPacks) {
-      throw new Error("Pack cap exceeded");
-    }
-    events.push({ type: "pack_open", packNo: opened });
+  const events: RoundEvent[] = [];
+  let stacks = emptyStacks();
+  let outcome: RoundResult["outcome"] = "resolved";
+  let lostMicros = 0n;
+  let opened = 0;
+  let ended = false;
+
+  for (let packNo = 1; packNo <= config.packsPerRound && !ended; packNo += 1) {
+    opened = packNo;
+    events.push({ type: "pack_open", packNo, cards: config.cardsPerPack });
 
     for (let position = 0; position < config.cardsPerPack; position += 1) {
       const card = drawCard();
-      events.push({ type: "card_reveal", card, packNo: opened, position });
+      events.push({ type: "card_reveal", card, packNo, position });
 
-      if (card.kind === "skull") {
-        potentialLostMicros = sumLevels(board.map((entry) => entry.level));
-        pending = 0;
-        board = [];
-        outcome = "loss";
-        multiplierMicros = 0n;
-        events.push({ type: "skull", cardId: card.id });
-        events.push({ type: "round_end", multiplierMicros: 0n, outcome: "loss" });
+      if (card.kind === "red") {
+        lostMicros = boardTotal(stacks);
+        stacks = emptyStacks();
+        outcome = "bust";
+        events.push({ type: "bust", cardId: card.id, lostMicros });
+        events.push({ type: "round_end", multiplierMicros: 0n, outcome: "bust", tier: "none" });
         ended = true;
         break;
       }
 
-      if (card.kind === "extra_pack") {
-        pending += 1;
-        if (opened + pending > config.maxOpenedPacks) {
-          throw new Error("Extra Pack pushed the round past the cap");
-        }
-        events.push({ type: "pack_earned", pendingPacks: pending });
+      if (card.kind === "purple") {
+        const color = chooseBoostTarget(stacks);
+        stacks = stacks.map((stack) =>
+          stack.color === color ? { ...stack, factor: stack.factor * card.factor } : stack,
+        );
+        const target = stacks.find((stack) => stack.color === color)!;
+        events.push({
+          type: "boost",
+          cardId: card.id,
+          color,
+          factor: card.factor,
+          stackFactor: target.factor,
+          stackTotalMicros: stackTotal(target),
+          totalMicros: boardTotal(stacks),
+        });
         continue;
       }
 
-      if (card.kind === "grey") continue;
-
-      board = [...board, card];
-      const merged = resolveMerges(board, config.maxLevel, nextId);
-      board = merged.board;
-      for (const step of merged.merges) {
-        events.push({ type: "merge", removed: step.removed, created: step.created });
-      }
+      stacks = stacks.map((stack) =>
+        stack.color === card.color ? { ...stack, cards: [...stack.cards, card] } : stack,
+      );
+      const target = stacks.find((stack) => stack.color === card.color)!;
+      events.push({
+        type: "stack_add",
+        cardId: card.id,
+        color: card.color,
+        stackTotalMicros: stackTotal(target),
+        totalMicros: boardTotal(stacks),
+      });
     }
   }
 
+  const multiplierMicros = ended ? 0n : boardTotal(stacks);
+  const tier = ended ? "none" : tierFor(multiplierMicros, config.tiers);
   if (!ended) {
-    multiplierMicros = sumLevels(board.map((entry) => entry.level));
-    events.push({
-      type: "round_end",
-      multiplierMicros,
-      outcome: "resolved",
-    });
+    events.push({ type: "round_end", multiplierMicros, outcome: "resolved", tier });
   }
 
   return {
@@ -136,9 +165,10 @@ export function resolveRound(input: ResolveInput): RoundResult {
     outcome,
     multiplierMicros,
     payoutMicros: payoutMicros(input.stake, multiplierMicros),
+    tier,
     openedPacks: opened,
-    survivingBoard: board,
-    potentialLostMicros,
+    stacks,
+    lostMicros,
     stakeDebits: 1,
   };
 }
