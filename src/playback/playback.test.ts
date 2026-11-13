@@ -18,14 +18,18 @@ describe("timeline", () => {
       "pack_enter",
       "pack_open",
       "eject",
+      "travel",
       "land",
       "eject",
+      "travel",
       "land",
       "merge_collapse",
       "merge_pop",
       "eject",
+      "travel",
       "land",
       "eject",
+      "travel",
       "land",
       "pack_earned",
       "eject",
@@ -94,20 +98,24 @@ describe("scene", () => {
     expect(scene.lanes.red).toHaveLength(0);
 
     at(3);
+    expect(scene.flyer).toMatchObject({ phase: "land", target: "lane", lane: "red" });
+    expect(scene.lanes.red).toHaveLength(0);
+
+    at(4);
     expect(scene.flyer).toBeNull();
     expect(scene.lanes.red).toHaveLength(1);
     expect(scene.lanes.red[0]?.state).toBe("landing");
     expect(scene.potentialMicros).toBe(100_000n);
 
-    at(4);
+    at(5);
     expect(scene.lanes.red[0]?.state).toBe("idle");
-    expect(scene.flyer?.lane).toBe("blue");
+    expect(scene.flyer).toMatchObject({ phase: "eject", lane: "blue" });
 
-    at(7);
+    at(10);
     expect(scene.lanes.red).toHaveLength(2);
-    at(8);
+    at(11);
     expect(scene.lanes.red.map((card) => card.state)).toEqual(["collapsing", "collapsing"]);
-    at(9);
+    at(12);
     expect(scene.lanes.red).toHaveLength(1);
     expect(scene.lanes.red[0]).toMatchObject({ level: 2, state: "born" });
     expect(scene.burst?.tone).toBe("merge");
@@ -125,10 +133,12 @@ describe("scene", () => {
     const afterEarned = reduceSteps(steps.slice(0, earnedIndex + 1));
     expect(afterEarned.pendingPacks).toBe(1);
     expect(afterEarned.burst).toMatchObject({ tone: "extra", text: "+1 PACK" });
-    const flyToQueue = reduceSteps(steps.slice(0, earnedIndex));
-    expect(flyToQueue.flyer).toBeNull();
-    const eject = reduceSteps(steps.slice(0, earnedIndex - 1));
-    expect(eject.flyer).toMatchObject({ target: "queue" });
+    const landed = reduceSteps(steps.slice(0, earnedIndex));
+    expect(landed.flyer).toBeNull();
+    const travel = reduceSteps(steps.slice(0, earnedIndex - 1));
+    expect(travel.flyer).toMatchObject({ phase: "land", target: "queue" });
+    const eject = reduceSteps(steps.slice(0, earnedIndex - 2));
+    expect(eject.flyer).toMatchObject({ phase: "eject", target: "queue" });
 
     const secondEnter = steps.findIndex((step) => step.kind === "pack_enter" && step.packNo === 2);
     const scene = reduceSteps(steps.slice(0, secondEnter + 1));

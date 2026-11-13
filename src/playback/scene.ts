@@ -11,6 +11,7 @@ export type Step =
   | { kind: "pack_enter"; packNo: number }
   | { kind: "pack_open"; packNo: number }
   | { kind: "eject"; card: Card; packNo: number; position: number }
+  | { kind: "travel"; card: Card }
   | { kind: "land"; card: Card }
   | { kind: "merge_collapse"; removed: [string, string]; created: ColorCard }
   | { kind: "merge_pop"; removed: [string, string]; created: ColorCard }
@@ -29,7 +30,10 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
         break;
       case "card_reveal":
         steps.push({ kind: "eject", card: event.card, packNo: event.packNo, position: event.position });
-        if (event.card.kind !== "skull") steps.push({ kind: "land", card: event.card });
+        if (event.card.kind !== "skull") {
+          steps.push({ kind: "travel", card: event.card });
+          steps.push({ kind: "land", card: event.card });
+        }
         break;
       case "merge":
         steps.push({ kind: "merge_collapse", removed: event.removed, created: event.created });
@@ -194,7 +198,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
         card.kind === "color" ? "lane" : card.kind === "extra_pack" ? "queue" : card.kind === "grey" ? "discard" : "center";
       const caption =
         card.kind === "color"
-          ? `${labelColor(card.color)} L${card.level} flies to its lane`
+          ? `${labelColor(card.color)} L${card.level}`
           : card.kind === "grey"
             ? "Grey · 0× · no merge"
             : card.kind === "extra_pack"
@@ -205,6 +209,20 @@ export function applyStep(previous: Scene, step: Step): Scene {
         cardsLeftInPack: Math.max(0, state.cardsLeftInPack - 1),
         flyer: { card, phase: "eject", target, lane: card.kind === "color" ? card.color : null },
         caption,
+      };
+    }
+    case "travel": {
+      const card = step.card;
+      const target: FlyerTarget = card.kind === "color" ? "lane" : card.kind === "extra_pack" ? "queue" : "discard";
+      return {
+        ...state,
+        flyer: { card, phase: "land", target, lane: card.kind === "color" ? card.color : null },
+        caption:
+          card.kind === "color"
+            ? `${labelColor(card.color)} L${card.level} flies to its lane`
+            : card.kind === "grey"
+              ? "Grey · 0× · set aside"
+              : "+1 PACK · goes to the queue",
       };
     }
     case "land": {

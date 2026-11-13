@@ -8,8 +8,9 @@ export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = ["1x", "2x", "instant"]
 const BASE_MS: Record<Step["kind"], number> = {
   pack_enter: 520,
   pack_open: 420,
-  eject: 360,
-  land: 380,
+  eject: 340,
+  travel: 400,
+  land: 240,
   merge_collapse: 260,
   merge_pop: 380,
   pack_earned: 620,
