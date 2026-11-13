@@ -35,7 +35,10 @@ Open one pack of six cards. Matching colored cards automatically merge into high
 - Faster playback / skip can only change animation, never the precomputed outcome.
 
 ## Documentation and next steps
-A documentation PR is being prepared with a detailed game concept, math/RNG notes, and the copy-paste Cursor implementation prompt.
+- [Game Concept & GDD v0.1](docs/GAME_CONCEPT_V0.1.md) — exact loop, feature rules, UX and acceptance criteria.
+- [Math / RNG Working Notes](docs/MATH_MODEL_NOTES.md) — demo-only paytable, seeded engine and invariants.
+- [Cursor implementation prompt](docs/CURSOR_PROMPT_V0.1.md) — copy-paste build brief.
+- [GitHub About metadata](docs/GITHUB_ABOUT_METADATA.md) — description and topic suggestions for manual GitHub settings.
 
 **Delivery practice:** implement future changes in a dedicated branch; open a PR; don't merge or claim a public deployment until verified.
 
