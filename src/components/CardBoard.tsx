@@ -2,7 +2,7 @@ import { forwardRef } from "react";
 import type { StackColor } from "../engine/types";
 import { formatMultiplier } from "../engine/money";
 import { labelColor, type StackView } from "../playback/scene";
-import { Gem } from "./CardFace";
+import { CardFace, Mark } from "./CardFace";
 
 type Props = {
   colors: readonly StackColor[];
@@ -12,10 +12,9 @@ type Props = {
 };
 
 /**
- * Compact card piles, one per eligible colour, side by side in the middle of
- * the stage. There is no box around a pile: it is the cards themselves. Each
- * new card slides in on top, pushed up by a small peek so every earlier
- * card's value strip stays readable. A purple boost is a ×N chip on the tag.
+ * One pile per eligible colour, bottoms aligned, sitting just above the pack.
+ * A pile is the cards themselves: the newest face is in front at the bottom
+ * and each older card peeks above it by exactly its corner strip.
  */
 export function CardBoard({ colors, stacks, dead, registerSlot }: Props) {
   return (
@@ -38,6 +37,7 @@ const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ st
       data-testid={`pile-${stack.color}`}
     >
       <header className="pile-tag">
+        <Mark tone={stack.color} className="pile-mark" />
         <span className="pile-name">{name}</span>
         {boosted ? (
           <span key={stack.boostKey ?? "chip"} className="pile-chip" data-testid={`chip-${stack.color}`}>
@@ -46,9 +46,7 @@ const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ st
         ) : null}
       </header>
       <div className="pile-well" style={{ ["--n" as string]: Math.max(stack.cards.length, 1) }}>
-        <div className="pile-slot" ref={ref} aria-hidden="true" style={{ ["--i" as string]: live.length }}>
-          <Gem />
-        </div>
+        <div className="pile-slot" ref={ref} aria-hidden="true" />
         {stack.cards.map((card, index) => (
           <div
             key={card.id}
@@ -56,12 +54,7 @@ const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ st
             style={{ ["--i" as string]: index }}
             data-testid={`stack-card-${card.id}`}
           >
-            <span className="stack-card-strip">
-              <span className="stack-card-index">{name}</span>
-              <span className="stack-card-strip-value">{formatMultiplier(card.valueMicros)}</span>
-            </span>
-            <strong className="stack-card-value">{formatMultiplier(card.valueMicros)}</strong>
-            <Gem className="stack-card-pip" />
+            <CardFace card={{ kind: "value", id: card.id, color: stack.color, valueMicros: card.valueMicros }} size="stack" />
           </div>
         ))}
         {stack.boostKey ? <div key={stack.boostKey} className="pile-flash" aria-hidden="true" /> : null}

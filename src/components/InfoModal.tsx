@@ -45,7 +45,7 @@ export function InfoModal({ onClose }: Props) {
         </header>
         <ul>
           <li>Pick a difficulty, set a stake, press Play. One stake opens one pack of six cards.</li>
-          <li>Each card flies out of the pack onto the pile of its colour. A pile is worth the sum of its cards.</li>
+          <li>Each card launches upward out of the pack, flips in the air and tucks into the pile of its colour. A pile is worth the sum of its cards.</li>
           <li>
             <strong>PURPLE</strong> lands on the pile with the most cards and multiplies it by ×{PURPLE_FACTOR}. Ties go
             to the highest total, then to the leftmost pile. Boosts stack with each other.

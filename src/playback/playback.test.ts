@@ -251,10 +251,26 @@ describe("scene", () => {
     expect(delayFor("earn", "instant")).toBe(0);
   });
 
-  it("keeps a safe one-pack round around four to five seconds at 1×", () => {
+  it("keeps a safe one-pack round inside three to five seconds at 1×", () => {
     const result = resolveRound({ seed: "pace", stake: 1, script: [g(0.3), b(1), g(0.3), g(0.3), b(1), g(0.3)] });
-    const ms = buildTimeline(result.events).reduce((sum, step) => sum + delayFor(step.kind, "1x"), 0);
+    const steps = buildTimeline(result.events);
+    const ms = steps.reduce((sum, step) => sum + delayFor(step.kind, "1x"), 0);
     expect(ms).toBeGreaterThanOrEqual(3_000);
-    expect(ms).toBeLessThanOrEqual(5_500);
+    expect(ms).toBeLessThanOrEqual(5_000);
+    // The handoff onto a pile is shorter than the flight, so the next launch overlaps the tuck.
+    expect(delayFor("stack", "1x")).toBeLessThan(delayFor("eject", "1x"));
+    expect(delayFor("eject", "1x") + delayFor("travel", "1x")).toBeLessThanOrEqual(500);
+  });
+
+  it("scales every delay with speed and does not change which steps exist", () => {
+    const result = resolveRound({ seed: "speed", stake: 9 });
+    const steps = buildTimeline(result.events);
+    const kinds = [...new Set(steps.map((step) => step.kind))];
+    for (const kind of kinds) {
+      expect(delayFor(kind, "2x")).toBe(Math.round(delayFor(kind, "1x") * 0.5));
+      expect(delayFor(kind, "instant")).toBe(0);
+      expect(delayFor(kind, "1x")).toBeGreaterThan(0);
+    }
+    expect(buildTimeline(result.events).map((step) => step.kind)).toEqual(steps.map((step) => step.kind));
   });
 });

@@ -24,7 +24,7 @@ type Flight = {
   ty: number;
 };
 
-/** Most waiting boosters drawn as separate layers; beyond that the counter carries the number. */
+/** Most waiting boosters drawn as separate sealed packs; the counter carries the rest. */
 const BOOSTER_LAYERS = 3;
 
 export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
@@ -39,6 +39,32 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
     slotRefs.current[color] = element;
   }, []);
 
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const fit = () => {
+      const width = stage.clientWidth;
+      const height = stage.clientHeight;
+      if (width < 80 || height < 80) return;
+      const hud = stage.querySelector<HTMLElement>(".hud")?.offsetHeight ?? 60;
+      const caption = stage.querySelector<HTMLElement>(".caption")?.offsetHeight ?? 18;
+      const actionH = height - hud - caption - 18;
+      const columns = scene.colors.length === 2 ? 2.2 : 3.25;
+      const byWidth = (width - 28) / columns;
+      const peek = width < 560 ? 13 : 15;
+      // Tag, total, the gap, the booster lip, five peeked corners, and a few pixels so a full pile stays under the caption.
+      const fixed = 58 + 10 + 30 + peek * 5;
+      const byHeight = (actionH - fixed) / (1.4 + 1.16 * 1.02);
+      const card = Math.round(Math.max(68, Math.min(186, byWidth, byHeight)));
+      stage.style.setProperty("--card-w", `${card}px`);
+      stage.style.setProperty("--peek", `${peek}px`);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [scene.colors.length]);
+
   const flyer = scene.flyer;
   const flyerKey = flyer ? `${flyer.card.id}:${flyer.phase}` : null;
 
@@ -51,7 +77,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
     const mouth = mouthRef.current?.getBoundingClientRect();
     if (!stage || !mouth) return;
     const x = mouth.left + mouth.width / 2 - stage.left;
-    const y = mouth.top - stage.top;
+    const y = mouth.top + mouth.height / 2 - stage.top;
     let tx = 0;
     let ty = 0;
     if (flyer.phase === "travel") {
@@ -68,7 +94,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
         tx = rect.left + rect.width / 2 - stage.left - x;
         ty = rect.top + rect.height / 2 - stage.top - y;
       } else {
-        ty = -220;
+        ty = -180;
       }
     }
     setFlight({ key: flyerKey, x, y, tx, ty });
@@ -100,7 +126,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
     : verdict === null
       ? "potential"
       : verdict === "bust"
-        ? "red card · 0×"
+        ? "bust · 0×"
         : verdict === "celebrate"
           ? `${scene.tier} win`
           : verdict === "win"
@@ -137,7 +163,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
   return (
     <section
       ref={stageRef}
-      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} ${flyer ? "has-flyer" : ""}`}
+      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""}`}
       data-testid="stage"
       aria-label="Game stage"
       style={{ ["--anim" as string]: anim }}
@@ -154,25 +180,15 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
           tone={verdict ?? undefined}
         />
         <Meter label="Payout" value={payoutValue} hint={netHint} testId="payout-meter" />
-        {verdict === "win" || verdict === "even" || verdict === "return" ? (
-          <p key={roundKey} className={`verdict-badge tone-${verdict}`} data-testid={verdict === "win" ? "win-badge" : "result-badge"} role="status">
-            <span>{verdict === "win" ? "Win" : verdict === "even" ? "Break-even" : "Return"}</span>
-            <strong>{formatMultiplier(scene.totalMicros)}</strong>
-          </p>
-        ) : null}
-      </div>
-
-      <div className="arena">
-        <CardBoard colors={scene.colors} stacks={scene.stacks} dead={dead} registerSlot={registerSlot} />
-        <div ref={centerRef} className="arena-center" aria-hidden="true" />
-        {scene.redCard && dead ? (
-          <div className="red-strike" data-testid="red-strike">
-            <CardFace card={scene.redCard} size="hero" />
-          </div>
-        ) : null}
-        {burst ? (
-          <p key={burst.id} className={`burst tone-${burst.tone} ${burst.color ? `color-${burst.color}` : ""}`} aria-hidden="true">
-            {burst.text}
+        {verdict === "win" || verdict === "even" || verdict === "return" || verdict === "bust" ? (
+          <p
+            key={roundKey}
+            className={`verdict-badge tone-${verdict}`}
+            data-testid={verdict === "win" ? "win-badge" : verdict === "bust" ? "bust-badge" : "result-badge"}
+            role="status"
+          >
+            <span>{verdict === "win" ? "Win" : verdict === "even" ? "Break-even" : verdict === "return" ? "Return" : "Bust"}</span>
+            <strong>{formatMultiplier(dead ? 0n : scene.totalMicros)}</strong>
           </p>
         ) : null}
       </div>
@@ -181,59 +197,81 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
         {scene.caption}
       </p>
 
-      <div className="pack-zone">
-        <div
-          className={`pack-stack ${waiting > 0 ? "has-boosters" : ""} ${dead && scene.cancelledPacks > 0 ? "boosters-dead" : ""}`}
-          data-testid="pack-stack"
-          data-waiting={waiting}
-        >
-          {Array.from({ length: layers }, (_, index) => (
-            <div
-              key={`booster-${index}`}
-              className="booster"
-              style={{ ["--i" as string]: index + 1 }}
-              data-testid={`booster-${index + 1}`}
-              aria-hidden="true"
-            >
-              <span className="booster-lid" />
-              <span className="booster-band" />
+      <div className="action">
+        <div className="arena">
+          <CardBoard colors={scene.colors} stacks={scene.stacks} dead={dead} registerSlot={registerSlot} />
+          <div ref={centerRef} className="arena-center" aria-hidden="true" />
+          {scene.redCard && dead ? (
+            <div className="red-strike" data-testid="red-strike">
+              <CardFace card={scene.redCard} size="hero" />
             </div>
-          ))}
-          <div ref={boostersRef} className="booster-anchor" aria-hidden="true" />
-          <div key={scene.packNo} className={`pack pack-${idle ? "sealed" : scene.pack} ${scene.packNo > 1 ? "is-bonus" : ""}`} data-testid="pack">
-            <div className="pack-glow" />
-            <div ref={mouthRef} className="pack-mouth">
-              {Array.from({ length: scene.cardsLeftInPack }, (_, index) => (
-                <CardBack key={index} size="stack" className={`inside inside-${index}`} />
-              ))}
-            </div>
-            <div className="pack-lid">
-              <span>{scene.packNo > 1 ? "Bonus Pack" : "Merge Pack"}</span>
-            </div>
-            <div className="pack-body">
-              <span className="pack-band" />
-              <strong>{multiPack && scene.packNo > 0 ? `PACK ${scene.packNo}` : "PACK"}</strong>
-              <em>{idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}</em>
-            </div>
-          </div>
-          {waiting > 0 ? (
-            <span
-              key={`${scene.earnKey ?? "count"}:${waiting}:${dead ? "dead" : "live"}`}
-              className={`booster-count ${dead ? "is-dead" : ""}`}
-              data-testid="booster-count"
-              aria-label={dead ? `${waiting} waiting packs cancelled` : `${waiting} bonus packs waiting`}
-            >
-              {dead ? `−${waiting}` : `+${waiting}`}
-            </span>
           ) : null}
+          {burst ? (
+            <p key={burst.id} className={`burst tone-${burst.tone} ${burst.color ? `color-${burst.color}` : ""}`} aria-hidden="true">
+              {burst.text}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="pack-zone">
+          <div
+            className={`pack-stack ${waiting > 0 ? "has-boosters" : ""} ${dead && scene.cancelledPacks > 0 ? "boosters-dead" : ""}`}
+            data-testid="pack-stack"
+            data-waiting={waiting}
+          >
+            {Array.from({ length: layers }, (_, index) => (
+              <div
+                key={`booster-${index}`}
+                className="booster"
+                style={{ ["--i" as string]: index + 1 }}
+                data-testid={`booster-${index + 1}`}
+                aria-hidden="true"
+              >
+                <span className="booster-foil" />
+                <span className="booster-crest" />
+                <span className="booster-lid" />
+              </div>
+            ))}
+            <div ref={boostersRef} className="booster-anchor" aria-hidden="true" />
+            <div key={scene.packNo} className={`pack pack-${idle ? "sealed" : scene.pack} ${scene.packNo > 1 ? "is-bonus" : ""}`} data-testid="pack">
+              <div className="pack-glow" />
+              <div ref={mouthRef} className="pack-mouth">
+                {Array.from({ length: scene.cardsLeftInPack }, (_, index) => (
+                  <CardBack key={index} size="stack" className={`inside inside-${index}`} />
+                ))}
+              </div>
+              <div className="pack-lid">
+                <span>{scene.packNo > 1 ? "Bonus Pack" : "Merge Pack"}</span>
+              </div>
+              <div className="pack-body">
+                <span className="pack-crest" aria-hidden="true" />
+                <span className="pack-band" />
+                <strong>{multiPack && scene.packNo > 0 ? `PACK ${scene.packNo}` : "PACK"}</strong>
+                <em>{idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}</em>
+              </div>
+            </div>
+            {waiting > 0 ? (
+              <span
+                key={`${scene.earnKey ?? "count"}:${waiting}:${dead ? "dead" : "live"}`}
+                className={`booster-count ${dead ? "is-dead" : ""}`}
+                data-testid="booster-count"
+                aria-label={dead ? `${waiting} waiting packs cancelled` : `${waiting} bonus packs waiting`}
+              >
+                {dead ? `−${waiting}` : `+${waiting}`}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
       {flyer && flight && flight.key === flyerKey ? (
         <div className="flight-layer" aria-hidden="true">
           <div
-            key={flight.key}
+            key={flyer.card.id}
             className={`flyer phase-${flyer.phase} target-${flyer.target ?? "none"} kind-${flyer.card.kind}`}
+            data-testid="flyer"
+            data-phase={flyer.phase}
+            data-target={flyer.target ?? "none"}
             style={{
               left: flight.x,
               top: flight.y,
