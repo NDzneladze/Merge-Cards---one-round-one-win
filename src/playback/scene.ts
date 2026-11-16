@@ -1,5 +1,6 @@
+import { MICRO } from "../engine/config";
 import { formatMultiplier } from "../engine/money";
-import { STACK_COLORS, type Card, type RoundEvent, type StackColor, type WinTier } from "../engine/types";
+import { STACK_COLORS, type Card, type Difficulty, type RoundEvent, type RoundResult, type StackColor, type WinTier } from "../engine/types";
 
 /**
  * Presentation timeline. Each engine event expands into one or more scene
@@ -8,7 +9,8 @@ import { STACK_COLORS, type Card, type RoundEvent, type StackColor, type WinTier
  * never add randomness or change the outcome; they are a deterministic
  * function of the engine's event log.
  */
-export type FlightTarget = StackColor | "center" | "queue";
+/** Where a card flies after it ejects: a pile, the arena centre (red), or the booster stack (+1 PACK). */
+export type FlightTarget = StackColor | "center" | "boosters";
 
 export type Step =
   | { kind: "pack_enter"; packNo: number; cards: number; pending: number }
@@ -42,7 +44,7 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
         steps.push({ kind: "eject", card: event.card });
         if (event.card.kind === "value") steps.push({ kind: "travel", card: event.card, target: event.card.color });
         else if (event.card.kind === "red") steps.push({ kind: "travel", card: event.card, target: "center" });
-        else if (event.card.kind === "extra") steps.push({ kind: "travel", card: event.card, target: "queue" });
+        else if (event.card.kind === "extra") steps.push({ kind: "travel", card: event.card, target: "boosters" });
         // Purple travels once the engine has named its target (see `boost`).
         break;
       }
@@ -117,7 +119,8 @@ export type Flyer = {
 
 export type PackVisual = "none" | "arriving" | "open" | "spent" | "dead";
 
-export type SceneStatus = "idle" | "playing" | "won" | "no_win" | "bust";
+/** won: above 1× · even: exactly 1× · returned: below 1× but not zero · no_win: 0× without a red card. */
+export type SceneStatus = "idle" | "playing" | "won" | "even" | "returned" | "no_win" | "bust";
 
 export type Burst = {
   id: string;
@@ -128,6 +131,9 @@ export type Burst = {
 
 export type Scene = {
   status: SceneStatus;
+  difficulty: Difficulty;
+  /** Piles on the board, in order. Other colours are hidden. */
+  colors: readonly StackColor[];
   packNo: number;
   /** Packs opened so far plus every pack still queued. */
   packsTotal: number;
@@ -153,17 +159,19 @@ export type Scene = {
   caption: string;
 };
 
-function emptyStacks(): Record<StackColor, StackView> {
+function emptyStacks(colors: readonly StackColor[]): Record<StackColor, StackView> {
   const out = {} as Record<StackColor, StackView>;
-  for (const color of STACK_COLORS) {
+  for (const color of colors) {
     out[color] = { color, cards: [], factor: 1, totalMicros: 0n, boostKey: null, hot: false };
   }
   return out;
 }
 
-export function initialScene(): Scene {
+export function initialScene(difficulty: Difficulty = "medium", colors: readonly StackColor[] = STACK_COLORS): Scene {
   return {
     status: "idle",
+    difficulty,
+    colors,
     packNo: 0,
     packsTotal: 1,
     pendingPacks: 0,
@@ -173,7 +181,7 @@ export function initialScene(): Scene {
     cardsLeftInPack: 6,
     pack: "none",
     flyer: null,
-    stacks: emptyStacks(),
+    stacks: emptyStacks(colors),
     totalMicros: 0n,
     finalMicros: null,
     tier: "none",
@@ -197,9 +205,9 @@ export function describeCard(card: Card): string {
 }
 
 function settleTransients(stacks: Record<StackColor, StackView>): Record<StackColor, StackView> {
-  const next = emptyStacks();
-  for (const color of STACK_COLORS) {
-    const stack = stacks[color];
+  const next = { ...stacks };
+  for (const stack of Object.values(stacks)) {
+    const { color } = stack;
     next[color] = {
       ...stack,
       hot: false,
@@ -247,7 +255,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
           : card.kind === "purple"
             ? `Purple ×${card.factor} → ${step.target} stack`
             : card.kind === "extra"
-              ? "+1 PACK → next packs"
+              ? "+1 PACK → booster stack"
               : "RED";
       return { ...state, flyer: { card, phase: "travel", target: step.target }, caption };
     }
@@ -259,7 +267,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
         packsTotal: step.totalPacks,
         earnKey: step.cardId,
         burst: { id: step.cardId, text: "+1 PACK", tone: "extra" },
-        caption: step.pending === 1 ? "+1 PACK · one more pack queued" : `+1 PACK · ${step.pending} packs queued`,
+        caption: step.pending === 1 ? "+1 PACK · a bonus pack slides in below" : `+1 PACK · ${step.pending} bonus packs waiting below`,
       };
     case "stack": {
       const flyer = state.flyer;
@@ -319,12 +327,12 @@ export function applyStep(previous: Scene, step: Step): Scene {
         burst: { id: step.cardId, text: "RED", tone: "bust" },
         caption:
           step.cancelledPacks > 0
-            ? `Red card · round ends now · ${step.cancelledPacks} queued pack${step.cancelledPacks === 1 ? "" : "s"} cancelled`
+            ? `Red card · round ends now · ${step.cancelledPacks} waiting pack${step.cancelledPacks === 1 ? "" : "s"} cancelled`
             : "Red card · the round ends now",
       };
     case "wipe": {
-      const stacks = emptyStacks();
-      for (const color of STACK_COLORS) {
+      const stacks = { ...state.stacks };
+      for (const color of state.colors) {
         stacks[color] = {
           ...state.stacks[color],
           hot: false,
@@ -353,15 +361,26 @@ export function applyStep(previous: Scene, step: Step): Scene {
       }
       return {
         ...state,
-        status: step.multiplierMicros > 0n ? "won" : "no_win",
+        status:
+          step.multiplierMicros > MICRO
+            ? "won"
+            : step.multiplierMicros === MICRO
+              ? "even"
+              : step.multiplierMicros > 0n
+                ? "returned"
+                : "no_win",
         pack: "spent",
         totalMicros: step.multiplierMicros,
         finalMicros: step.multiplierMicros,
         tier: step.tier,
         caption:
-          step.multiplierMicros > 0n
-            ? `Round over · ${formatMultiplier(step.multiplierMicros)}`
-            : "Round over · nothing collected",
+          step.multiplierMicros > MICRO
+            ? `Round over · win ${formatMultiplier(step.multiplierMicros)}`
+            : step.multiplierMicros === MICRO
+              ? "Round over · break-even 1.00×"
+              : step.multiplierMicros > 0n
+                ? `Round over · return ${formatMultiplier(step.multiplierMicros)} · below the stake`
+                : "Round over · nothing collected",
       };
     default: {
       const never: never = step;
@@ -370,16 +389,26 @@ export function applyStep(previous: Scene, step: Step): Scene {
   }
 }
 
-export function reduceSteps(steps: readonly Step[]): Scene {
-  return steps.reduce(applyStep, initialScene());
+export function reduceSteps(steps: readonly Step[], start: Scene = initialScene()): Scene {
+  return steps.reduce(applyStep, start);
 }
 
-export function reduceEvents(events: readonly RoundEvent[]): Scene {
-  return reduceSteps(buildTimeline(events));
+export function sceneFor(result: Pick<RoundResult, "difficulty" | "colors">): Scene {
+  return initialScene(result.difficulty, result.colors);
+}
+
+export function reduceEvents(events: readonly RoundEvent[], start: Scene = initialScene()): Scene {
+  return reduceSteps(buildTimeline(events), start);
+}
+
+export function reduceResult(result: RoundResult, upto?: number): Scene {
+  const steps = buildTimeline(result.events);
+  return reduceSteps(upto === undefined ? steps : steps.slice(0, upto), sceneFor(result));
 }
 
 export function liveCardIds(scene: Scene): string[] {
-  return STACK_COLORS.flatMap((color) => scene.stacks[color].cards)
+  return scene.colors
+    .flatMap((color) => scene.stacks[color].cards)
     .filter((card) => card.state !== "dying")
     .map((card) => card.id)
     .sort();
