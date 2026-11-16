@@ -1,5 +1,7 @@
-import { STAKE_PRESETS } from "../engine/config";
-import { FEATURED_SEEDS } from "../engine/featured";
+import { DIFFICULTIES, DIFFICULTY_ORDER, STAKE_PRESETS } from "../engine/config";
+import { FEATURED_SEEDS, type FeaturedSeed } from "../engine/featured";
+import type { Difficulty } from "../engine/types";
+import { labelColor } from "../playback/scene";
 import type { PlaybackSpeed } from "../playback/timing";
 import { PLAYBACK_SPEEDS } from "../playback/timing";
 
@@ -11,10 +13,13 @@ type Props = {
   broke: boolean;
   speed: PlaybackSpeed;
   seed: string;
+  difficulty: Difficulty;
   onStake: (stake: number) => void;
   onPlay: () => void;
   onSpeed: (speed: PlaybackSpeed) => void;
   onSeed: (seed: string) => void;
+  onDifficulty: (difficulty: Difficulty) => void;
+  onExample: (example: FeaturedSeed) => void;
   onRefill: () => void;
 };
 
@@ -27,8 +32,32 @@ const SPEED_LABEL: Record<PlaybackSpeed, string> = {
 /** Compact control bar under the stage. The scene above stays the focus. */
 export function BetPanel(props: Props) {
   const { playing, maxStake, stake } = props;
+  const mode = DIFFICULTIES[props.difficulty];
   return (
     <aside className="controls" aria-label="Bet controls">
+      <div className="difficulty-block">
+        <span className="field-label">Difficulty</span>
+        <div className="difficulty-row" role="group" aria-label="Difficulty">
+          {DIFFICULTY_ORDER.map((id) => {
+            const option = DIFFICULTIES[id];
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`difficulty tone-${id}`}
+                data-testid={`difficulty-${id}`}
+                aria-pressed={props.difficulty === id}
+                disabled={playing}
+                onClick={() => props.onDifficulty(id)}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.colors.map(labelColor).join(" + ")}</span>
+              </button>
+            );
+          })}
+        </div>
+        <small data-testid="difficulty-blurb">{mode.blurb}. Purple ×2, Red and +1 PACK in every mode.{playing ? " Locked while the round resolves." : ""}</small>
+      </div>
       <div className="controls-row">
         <div className="stake-block">
           <span className="field-label">Stake</span>
@@ -94,16 +123,17 @@ export function BetPanel(props: Props) {
               <button
                 key={example.id}
                 type="button"
-                aria-pressed={props.seed === example.seed}
+                aria-pressed={props.seed === example.seed && props.difficulty === example.difficulty}
                 disabled={playing}
-                onClick={() => props.onSeed(example.seed)}
+                title={`${DIFFICULTIES[example.difficulty].label} · ${example.seed}`}
+                onClick={() => props.onExample(example)}
               >
                 {example.label}
               </button>
             ))}
           </div>
           <label className="seed-field">
-            <span>A pinned seed repeats the same cards. Clear it for a fresh deal. Play always spends one stake.</span>
+            <span>A pinned seed repeats the same cards for the same difficulty. Clear it for a fresh deal. Play always spends one stake.</span>
             <input
               data-testid="seed-input"
               value={props.seed}
