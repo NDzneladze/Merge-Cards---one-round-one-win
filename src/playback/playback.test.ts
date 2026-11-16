@@ -42,12 +42,12 @@ describe("timeline", () => {
     expect(travel[3]?.kind === "travel" && travel[3].card.kind).toBe("purple");
   });
 
-  it("sends a +1 PACK to the queue, then brings in the next pack after the last card", () => {
+  it("sends a +1 PACK under the pack, then brings in the waiting pack after the last card", () => {
     const result = resolveRound({ seed: "tq", stake: 1, script: [g(0.3), extra, g(0.1), g(0.1), g(0.1), g(0.1), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2)] });
     const steps = buildTimeline(result.events);
     const kinds = steps.map((step) => step.kind);
     expect(kinds.slice(0, 9)).toEqual(["pack_enter", "pack_open", "eject", "travel", "stack", "eject", "travel", "earn", "eject"]);
-    expect(steps[6]).toMatchObject({ kind: "travel", target: "queue" });
+    expect(steps[6]).toMatchObject({ kind: "travel", target: "boosters" });
     expect(steps[7]).toMatchObject({ kind: "earn", pending: 1, totalPacks: 2 });
     expect(kinds.filter((kind) => kind === "pack_enter")).toHaveLength(2);
     const second = steps.findIndex((step, index) => step.kind === "pack_enter" && index > 0);
@@ -58,17 +58,33 @@ describe("timeline", () => {
 });
 
 describe("scene", () => {
+  it("starts with only the difficulty's piles", () => {
+    expect(Object.keys(initialScene("easy", ["green", "blue"]).stacks)).toEqual(["green", "blue"]);
+    expect(Object.keys(initialScene("hard", ["blue", "gold"]).stacks)).toEqual(["blue", "gold"]);
+    expect(initialScene().difficulty).toBe("medium");
+    const hard = resolveRound({ seed: "h", stake: 1, difficulty: "hard", script: [b(1), au(5), b(1), b(1), b(1), b(1)] });
+    const scene = reduceEvents(hard.events, initialScene("hard", hard.colors));
+    expect(scene.stacks.blue?.cards).toHaveLength(5);
+    expect(scene.stacks.gold?.cards).toHaveLength(1);
+    expect(scene.stacks.green).toBeUndefined();
+  });
+
   it("folds the timeline to the engine settlement for wins, empty boards and busts", () => {
     const cases = [
       resolveRound({ seed: "play-a", stake: 10 }),
       resolveRound({ seed: "play-b", stake: 10, script: [g(0.5), au(5), purple, red] }),
-      resolveRound({ seed: "demo-283", stake: 10 }),
-      resolveRound({ seed: "demo-144", stake: 10 }),
-      resolveRound({ seed: "demo-547", stake: 10 }),
-      resolveRound({ seed: "demo-46", stake: 10 }),
+      resolveRound({ seed: "demo-1725", stake: 10, difficulty: "medium" }),
+      resolveRound({ seed: "demo-105", stake: 10, difficulty: "medium" }),
+      resolveRound({ seed: "demo-6", stake: 10, difficulty: "easy" }),
+      resolveRound({ seed: "demo-10", stake: 10, difficulty: "hard" }),
+      resolveRound({ seed: "demo-441", stake: 10, difficulty: "medium" }),
+      resolveRound({ seed: "even", stake: 1, script: [g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.5)] }),
     ];
     for (const result of cases) {
-      const scene = reduceEvents(result.events);
+      const scene = reduceEvents(result.events, initialScene(result.difficulty, result.colors));
+      expect(scene.difficulty).toBe(result.difficulty);
+      expect(scene.colors).toEqual(result.colors);
+      expect(Object.keys(scene.stacks).sort()).toEqual([...result.colors].sort());
       expect(scene.finalMicros).toBe(result.multiplierMicros);
       expect(scene.tier).toBe(result.tier);
       expect(scene.flyer).toBeNull();
@@ -82,7 +98,11 @@ describe("scene", () => {
         expect(scene.redCard?.kind).toBe("red");
         expect(liveCardIds(scene)).toEqual([]);
       } else {
-        expect(scene.status).toBe(result.multiplierMicros > 0n ? "won" : "no_win");
+        const expected = result.tier === "return" ? "returned" : result.tier === "even" ? "even" : result.multiplierMicros > 0n ? "won" : "no_win";
+        expect(scene.status).toBe(expected);
+        if (result.tier === "return") expect(scene.caption).toMatch(/return .* below the stake/);
+        if (result.tier === "even") expect(scene.caption).toMatch(/break-even/);
+        if (result.tier === "win") expect(scene.caption).toMatch(/win/);
         expect(liveCardIds(scene)).toEqual(result.stacks.flatMap((stack) => stack.cards.map((card) => card.id)).sort());
         for (const stack of result.stacks) {
           expect(scene.stacks[stack.color].factor).toBe(stack.factor);
@@ -177,10 +197,11 @@ describe("scene", () => {
     expect(firstEarn.packsTotal).toBe(2);
     expect(firstEarn.earnKey).toBe(firstEarn.burst?.id);
     expect(firstEarn.burst).toMatchObject({ tone: "extra", text: "+1 PACK" });
-    expect(firstEarn.caption).toMatch(/one more pack queued/);
+    expect(firstEarn.caption).toMatch(/a bonus pack slides in below/);
     const secondEarn = reduceSteps(steps.slice(0, earnIndexes[1]! + 1));
     expect(secondEarn.pendingPacks).toBe(2);
     expect(secondEarn.packsTotal).toBe(3);
+    expect(secondEarn.caption).toMatch(/2 bonus packs waiting below/);
 
     const secondEnter = steps.findIndex((step) => step.kind === "pack_enter" && step.packNo === 2);
     const entering = reduceSteps(steps.slice(0, secondEnter + 1));
@@ -212,7 +233,7 @@ describe("scene", () => {
     const strike = reduceSteps(steps.slice(0, steps.findIndex((step) => step.kind === "bust_strike") + 1));
     expect(strike.pendingPacks).toBe(0);
     expect(strike.cancelledPacks).toBe(2);
-    expect(strike.caption).toMatch(/2 queued packs cancelled/);
+    expect(strike.caption).toMatch(/2 waiting packs cancelled/);
     const settled = reduceSteps(steps);
     expect(settled.status).toBe("bust");
     expect(settled.packNo).toBe(1);

@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_CONFIG, DEMO_WEIGHTS, VALUE_RANGES, WIN_TIERS } from "./config";
-import { drawKind, drawValue, rangeSteps, weightTotal } from "./draw";
+import {
+  BLUE_VALUES,
+  CELEBRATION_MIN_MICROS,
+  DEMO_CONFIG,
+  DIFFICULTIES,
+  DIFFICULTY_ORDER,
+  GOLD_VALUES,
+  GREEN_VALUES,
+  MICRO,
+  WIN_TIERS,
+  configFor,
+} from "./config";
+import { drawKind, drawValue, rangeSteps, tableWeight, valueBounds, valueSupport, weightTotal } from "./draw";
 import { FEATURED_SEEDS } from "./featured";
 import { boardTotal, stackTotal } from "./money";
 import { createRng } from "./rng";
 import { chooseBoostTarget, resolveRound, tierFor } from "./round";
-import { STACK_COLORS, type RoundEvent, type RoundResult, type ScriptedDraw, type StackState } from "./types";
+import { STACK_COLORS, type Difficulty, type RoundEvent, type RoundResult, type ScriptedDraw, type StackState } from "./types";
 
 const g = (value?: number): ScriptedDraw => ({ kind: "green", value });
 const b = (value?: number): ScriptedDraw => ({ kind: "blue", value });
@@ -36,16 +47,20 @@ function assertSingleSettlement(result: RoundResult): void {
     expect(end.tier).toBe(result.tier);
   }
   expect(result.payoutMicros).toBe(BigInt(result.stake) * result.multiplierMicros);
+  expect(result.netMicros).toBe(result.payoutMicros - BigInt(result.stake) * MICRO);
 }
 
-function assertWellFormed(result: RoundResult, config = DEMO_CONFIG): void {
+function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValues = false): void {
   let bustSeen = false;
   let reveals = 0;
   let opened = 0;
   let pending = 0;
   let earned = 0;
   let revealsInPack = 0;
-  const stacks: StackState[] = STACK_COLORS.map((color) => ({ color, cards: [], factor: 1 }));
+  expect(result.difficulty).toBe(config.difficulty);
+  expect(result.colors).toEqual(config.colors);
+  expect(result.stacks.map((stack) => stack.color)).toEqual(config.colors);
+  const stacks: StackState[] = config.colors.map((color) => ({ color, cards: [], factor: 1 }));
   for (const event of result.events) {
     if (bustSeen && event.type !== "round_end") {
       throw new Error(`Event ${event.type} followed the red card`);
@@ -75,10 +90,9 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG): void {
       revealsInPack += 1;
       const card = event.card;
       if (card.kind === "value") {
-        const range = VALUE_RANGES[card.color];
-        expect(card.valueMicros).toBeGreaterThanOrEqual(range.minMicros);
-        expect(card.valueMicros).toBeLessThanOrEqual(range.maxMicros);
-        expect((card.valueMicros - range.minMicros) % range.stepMicros).toBe(0n);
+        // Only eligible colours may appear, and only on configured denominations.
+        expect(config.colors).toContain(card.color);
+        if (strictValues) expect(valueSupport(config.values[card.color])).toContain(card.valueMicros);
         const stack = stacks.find((entry) => entry.color === card.color)!;
         stack.cards = [...stack.cards, card];
       }
@@ -107,6 +121,7 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG): void {
   if (result.outcome === "bust") {
     expect(result.multiplierMicros).toBe(0n);
     expect(result.tier).toBe("none");
+    expect(result.netMicros).toBe(-BigInt(result.stake) * MICRO);
     expect(result.cancelledPacks).toBe(pending);
     expect(result.stacks.every((stack) => stack.cards.length === 0)).toBe(true);
   } else {
@@ -117,39 +132,150 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG): void {
     expect(reveals).toBe(config.cardsPerPack * opened);
     expect(result.multiplierMicros).toBe(boardTotal(result.stacks));
     expect(result.lostMicros).toBe(0n);
+    if (result.multiplierMicros < MICRO) expect(result.tier).toBe("return");
+    if (result.multiplierMicros === MICRO) expect(result.tier).toBe("even");
+    if (result.multiplierMicros > MICRO && result.multiplierMicros < CELEBRATION_MIN_MICROS) expect(result.tier).toBe("win");
   }
   assertSingleSettlement(result);
 }
 
+const config = (difficulty: Difficulty) => configFor(difficulty);
+const seedsFor = (difficulty: Difficulty, count: number, stake = 10) =>
+  Array.from({ length: count }, (_, i) => resolveRound({ seed: `${difficulty}-${i}`, stake, difficulty }));
+
 describe("config", () => {
-  it("weights sum to 100 and every range sits on its grid", () => {
-    expect(weightTotal(DEMO_WEIGHTS)).toBe(100);
-    expect(rangeSteps(VALUE_RANGES.green)).toBe(91);
-    expect(rangeSteps(VALUE_RANGES.blue)).toBe(41);
-    expect(rangeSteps(VALUE_RANGES.gold)).toBe(21);
-    expect(WIN_TIERS.map((rule) => rule.tier)).toEqual(["mega", "huge", "big"]);
-    expect(DEMO_CONFIG.maxPacks).toBe(6);
+  it("every difficulty has per-mille weights summing to 1000 with zero weight on its ineligible colours", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      const mode = DIFFICULTIES[id];
+      expect(weightTotal(mode.weights)).toBe(1000);
+      for (const color of STACK_COLORS) {
+        if (mode.colors.includes(color)) expect(mode.weights[color]).toBeGreaterThan(0);
+        else expect(mode.weights[color]).toBe(0);
+      }
+      // Purple, Red and +1 PACK exist in every mode.
+      expect(mode.weights.purple).toBeGreaterThan(0);
+      expect(mode.weights.red).toBeGreaterThan(0);
+      expect(mode.weights.extra).toBeGreaterThan(0);
+      expect(configFor(id).maxPacks).toBe(6);
+      expect(configFor(id).cardsPerPack).toBe(6);
+    }
   });
 
-  it("draws only configured kinds and only in-range values", () => {
-    const rng = createRng("draw-check");
-    const seen = new Set<string>();
-    for (let i = 0; i < 2_000; i += 1) {
-      seen.add(drawKind(rng, DEMO_WEIGHTS));
-      for (const color of STACK_COLORS) {
-        const value = drawValue(rng, VALUE_RANGES[color]);
-        expect(value).toBeGreaterThanOrEqual(VALUE_RANGES[color].minMicros);
-        expect(value).toBeLessThanOrEqual(VALUE_RANGES[color].maxMicros);
+  it("maps the three difficulties to their eligible card sets", () => {
+    expect(DIFFICULTIES.easy.colors).toEqual(["green", "blue"]);
+    expect(DIFFICULTIES.medium.colors).toEqual(["green", "blue", "gold"]);
+    expect(DIFFICULTIES.hard.colors).toEqual(["blue", "gold"]);
+    expect(DEMO_CONFIG.difficulty).toBe("medium");
+  });
+
+  it("keeps green small: at least 75 % of green cards are ≤ 0.20×", () => {
+    if (GREEN_VALUES.kind !== "weighted") throw new Error("green must be a weighted table");
+    const total = tableWeight(GREEN_VALUES);
+    const small = GREEN_VALUES.entries.filter((entry) => entry.valueMicros <= 200_000n).reduce((sum, entry) => sum + entry.weight, 0);
+    expect(small / total).toBeGreaterThanOrEqual(0.75);
+    for (const value of [100_000n, 120_000n, 130_000n]) expect(valueSupport(GREEN_VALUES)).toContain(value);
+    expect(valueBounds(GREEN_VALUES).minMicros).toBe(100_000n);
+    expect(rangeSteps(BLUE_VALUES.kind === "uniform" ? BLUE_VALUES : (() => { throw new Error("blue"); })())).toBe(41);
+    expect(rangeSteps(GOLD_VALUES.kind === "uniform" ? GOLD_VALUES : (() => { throw new Error("gold"); })())).toBe(21);
+    expect(WIN_TIERS.map((rule) => rule.tier)).toEqual(["mega", "huge", "big"]);
+    expect(WIN_TIERS.at(-1)?.minMicros).toBe(CELEBRATION_MIN_MICROS);
+  });
+
+  it("draws only the mode's kinds and only configured denominations", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      const mode = DIFFICULTIES[id];
+      const rng = createRng(`draw-${id}`);
+      const seen = new Set<string>();
+      for (let i = 0; i < 3_000; i += 1) {
+        seen.add(drawKind(rng, mode.weights));
+        for (const color of mode.colors) {
+          expect(valueSupport(mode.values[color])).toContain(drawValue(rng, mode.values[color]));
+        }
       }
+      expect([...seen].sort()).toEqual([...mode.colors, "extra", "purple", "red"].sort());
     }
-    expect([...seen].sort()).toEqual(["blue", "extra", "gold", "green", "purple", "red"]);
   });
 
   it("never draws +1 PACK once its weight is removed from the pool", () => {
     const rng = createRng("no-extra");
     for (let i = 0; i < 2_000; i += 1) {
-      expect(drawKind(rng, { ...DEMO_WEIGHTS, extra: 0 })).not.toBe("extra");
+      expect(drawKind(rng, { ...DEMO_CONFIG.weights, extra: 0 })).not.toBe("extra");
     }
+  });
+});
+
+describe("difficulty", () => {
+  it("only deals eligible colours and only builds eligible piles, in every mode", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      const mode = DIFFICULTIES[id];
+      let dealt = new Set<string>();
+      for (const result of seedsFor(id, 300)) {
+        assertWellFormed(result, config(id), true);
+        for (const event of result.events) {
+          if (event.type === "card_reveal" && event.card.kind === "value") dealt.add(event.card.color);
+        }
+      }
+      expect([...dealt].sort()).toEqual([...mode.colors].sort());
+      dealt = new Set();
+    }
+  });
+
+  it("rejects a scripted card of an ineligible colour", () => {
+    expect(() => resolveRound({ seed: "x", stake: 1, difficulty: "easy", script: [au(5)] })).toThrow(/gold/);
+    expect(() => resolveRound({ seed: "x", stake: 1, difficulty: "hard", script: [g(0.1)] })).toThrow(/green/);
+  });
+
+  it("puts purple on the leftmost eligible pile when the board is empty: Green on Easy/Medium, Blue on Hard", () => {
+    const easy = resolveRound({ seed: "p", stake: 1, difficulty: "easy", script: [purple, g(0.5), b(1), g(0.5), g(0.5), g(0.5)] });
+    expect(eventsOf(easy, "boost")[0]).toMatchObject({ color: "green" });
+    // green 2 × 2 + blue 1
+    expect(easy.multiplierMicros).toBe(5_000_000n);
+    const medium = resolveRound({ seed: "p", stake: 1, difficulty: "medium", script: [purple, au(5), b(1), g(0.5), g(0.5), g(0.5)] });
+    expect(eventsOf(medium, "boost")[0]).toMatchObject({ color: "green" });
+    const hard = resolveRound({ seed: "p", stake: 1, difficulty: "hard", script: [purple, au(5), b(1), b(1), b(1), b(1)] });
+    expect(eventsOf(hard, "boost")[0]).toMatchObject({ color: "blue" });
+    // blue 4 × 2 + gold 5
+    expect(hard.multiplierMicros).toBe(13_000_000n);
+    expect(hard.stacks.map((stack) => stack.color)).toEqual(["blue", "gold"]);
+  });
+
+  it("targets an occupied eligible pile by count, then total, then leftmost", () => {
+    const hard = resolveRound({ seed: "p2", stake: 1, difficulty: "hard", script: [au(5), b(1), b(1), purple, b(1), b(1)] });
+    expect(eventsOf(hard, "boost")[0]).toMatchObject({ color: "blue", stackFactor: 2 });
+    const easy = resolveRound({ seed: "p3", stake: 1, difficulty: "easy", script: [g(0.1), b(1), purple, g(0.1), g(0.1), g(0.1)] });
+    // 1 card each → higher total → blue.
+    expect(eventsOf(easy, "boost")[0]).toMatchObject({ color: "blue" });
+  });
+
+  it("a safe round can finish below 1× in every mode that deals Green, and is reported as a return", () => {
+    for (const id of ["easy", "medium"] as const) {
+      const returns = seedsFor(id, 400).filter((result) => result.outcome === "resolved" && result.multiplierMicros < MICRO);
+      expect(returns.length).toBeGreaterThan(0);
+      for (const result of returns) {
+        expect(result.tier).toBe("return");
+        expect(result.payoutMicros).toBeGreaterThan(0n);
+        expect(result.payoutMicros).toBeLessThan(BigInt(result.stake) * MICRO);
+        expect(result.netMicros).toBeLessThan(0n);
+      }
+    }
+    const small = resolveRound({ seed: "small", stake: 10, difficulty: "easy", script: [g(0.1), g(0.12), g(0.13), g(0.1), g(0.1), g(0.15)] });
+    expect(small.multiplierMicros).toBe(700_000n);
+    expect(small.payoutMicros).toBe(7_000_000n);
+    expect(small.netMicros).toBe(-3_000_000n);
+    expect(small.tier).toBe("return");
+  });
+
+  it("Hard never pays below 1× on a safe finish but busts far more often; it is not strictly better", () => {
+    const easy = seedsFor("easy", 2_000, 1);
+    const hard = seedsFor("hard", 2_000, 1);
+    const mean = (rounds: RoundResult[]) => rounds.reduce((sum, r) => sum + Number(r.multiplierMicros) / 1e6, 0) / rounds.length;
+    const bust = (rounds: RoundResult[]) => rounds.filter((r) => r.outcome === "bust").length / rounds.length;
+    for (const result of hard) {
+      if (result.outcome === "resolved") expect(result.multiplierMicros).toBeGreaterThanOrEqual(MICRO);
+    }
+    expect(bust(hard)).toBeGreaterThan(bust(easy) + 0.3);
+    expect(mean(hard)).toBeLessThan(mean(easy) * 1.6);
+    expect(mean(hard)).toBeGreaterThan(0.5);
   });
 });
 
@@ -198,30 +324,46 @@ describe("resolveRound", () => {
     expect(result.multiplierMicros).toBe(6_000_000n);
   });
 
-  it("computes tiers from the final multiplier", () => {
+  it("computes tiers from the final multiplier: return < 1× = even < win < big/huge/mega", () => {
     expect(tierFor(0n, WIN_TIERS)).toBe("none");
-    expect(tierFor(10_000n, WIN_TIERS)).toBe("win");
-    expect(tierFor(24_990_000n, WIN_TIERS)).toBe("win");
-    expect(tierFor(25_000_000n, WIN_TIERS)).toBe("big");
-    expect(tierFor(50_000_000n, WIN_TIERS)).toBe("huge");
-    expect(tierFor(100_000_000n, WIN_TIERS)).toBe("mega");
+    expect(tierFor(10_000n, WIN_TIERS)).toBe("return");
+    expect(tierFor(999_999n, WIN_TIERS)).toBe("return");
+    expect(tierFor(1_000_000n, WIN_TIERS)).toBe("even");
+    expect(tierFor(1_000_001n, WIN_TIERS)).toBe("win");
+    expect(tierFor(9_990_000n, WIN_TIERS)).toBe("win");
+    expect(tierFor(10_000_000n, WIN_TIERS)).toBe("big");
+    expect(tierFor(25_000_000n, WIN_TIERS)).toBe("huge");
+    expect(tierFor(50_000_000n, WIN_TIERS)).toBe("mega");
     const big = resolveRound({ seed: "big", stake: 1, script: [au(15), au(15), au(15), au(15), purple, g(0.1)] });
     expect(big.tier).toBe("mega");
     expect(big.multiplierMicros).toBe(120_100_000n);
+    const even = resolveRound({ seed: "even", stake: 4, script: [g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.5)] });
+    expect(even.tier).toBe("even");
+    expect(even.netMicros).toBe(0n);
   });
 
   it("keeps every featured seed on its advertised outcome", () => {
+    expect(FEATURED_SEEDS.map((example) => example.id)).toEqual(["chain", "small", "boost", "hard", "big", "bust"]);
     for (const example of FEATURED_SEEDS) {
-      const result = resolveRound({ seed: example.seed, stake: 10 });
-      assertWellFormed(result);
+      const result = resolveRound({ seed: example.seed, stake: 10, difficulty: example.difficulty });
+      assertWellFormed(result, config(example.difficulty), true);
       if (example.id === "chain") {
+        expect(example.difficulty).toBe("medium");
         expect(result.outcome).toBe("resolved");
         expect(result.openedPacks).toBe(3);
         expect(result.tier).toBe("win");
+        // Two boosters wait under the pack at the same time.
+        expect(eventsOf(result, "pack_earned").some((event) => event.type === "pack_earned" && event.pending === 2)).toBe(true);
+      }
+      if (example.id === "small") {
+        expect(example.difficulty).toBe("easy");
+        expect(result.outcome).toBe("resolved");
+        expect(result.tier).toBe("return");
+        expect(result.multiplierMicros).toBe(700_000n);
       }
       if (example.id === "bust") {
         expect(result.outcome).toBe("bust");
-        expect(result.cancelledPacks).toBe(1);
+        expect(result.cancelledPacks).toBe(2);
       }
       if (example.id === "boost") {
         expect(result.outcome).toBe("resolved");
@@ -229,12 +371,18 @@ describe("resolveRound", () => {
         expect(result.tier).toBe("win");
         expect(eventsOf(result, "boost").length).toBeGreaterThan(0);
       }
+      if (example.id === "hard") {
+        expect(example.difficulty).toBe("hard");
+        expect(result.outcome).toBe("resolved");
+        expect(result.tier).toBe("big");
+        expect(result.stacks.map((stack) => stack.color)).toEqual(["blue", "gold"]);
+      }
       if (example.id === "big") {
         expect(result.outcome).toBe("resolved");
         expect(result.openedPacks).toBe(2);
         expect(result.tier).toBe("big");
+        expect(result.multiplierMicros).toBeGreaterThanOrEqual(CELEBRATION_MIN_MICROS);
       }
-      if (example.id === "mega") expect(result.tier).toBe("mega");
     }
   });
 
@@ -242,7 +390,7 @@ describe("resolveRound", () => {
     let chains = 0;
     for (let i = 0; i < 600; i += 1) {
       const result = resolveRound({ seed: `fuzz-${i}`, stake: 3 });
-      assertWellFormed(result);
+      assertWellFormed(result, DEMO_CONFIG, true);
       if (result.openedPacks > 1) chains += 1;
     }
     expect(chains).toBeGreaterThan(0);
@@ -329,7 +477,7 @@ describe("+1 PACK chain", () => {
   });
 
   it("never opens more than maxPacks and stops drawing +1 at the cap", () => {
-    const tight = { ...DEMO_CONFIG, maxPacks: 2, weights: { ...DEMO_WEIGHTS, extra: 60, red: 0 } };
+    const tight = { ...DEMO_CONFIG, maxPacks: 2, weights: { ...DEMO_CONFIG.weights, extra: 600, red: 0 } };
     for (let i = 0; i < 200; i += 1) {
       const result = resolveRound({ seed: `cap-${i}`, stake: 1, config: tight });
       assertWellFormed(result, tight);
@@ -389,6 +537,7 @@ describe("chooseBoostTarget", () => {
 
   it("falls back to the leftmost stack when the board is empty", () => {
     expect(chooseBoostTarget([stack("green", []), stack("blue", []), stack("gold", [])])).toBe("green");
+    expect(chooseBoostTarget([stack("blue", []), stack("gold", [])])).toBe("blue");
     const result = resolveRound({
       seed: "early-purple",
       stake: 1,
