@@ -6,20 +6,23 @@ export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = ["1x", "2x", "instant"]
 
 /**
  * Milliseconds at 1×. Speed only scales these delays; it never changes the
- * transcript. A safe one-pack round runs in roughly 4.5 s; each bonus pack
- * adds about 4 s of card travel plus a short pack transition.
+ * transcript. Eject is a short launch, travel is the flip-and-arc, and the
+ * stack step is only the handoff onto the pile — the tuck animation keeps
+ * running into the next launch so a pack reads as one opening, not a
+ * slideshow. A safe one-pack round lands around 3.5 s. A bonus pack adds
+ * another opening of the same length plus the earn beat.
  */
 const BASE_MS: Record<Step["kind"], number> = {
-  pack_enter: 340,
-  pack_open: 300,
-  eject: 230,
-  travel: 260,
-  stack: 150,
-  earn: 420,
-  boost: 420,
-  bust_strike: 760,
-  wipe: 480,
-  settle: 140,
+  pack_enter: 240,
+  pack_open: 160,
+  eject: 140,
+  travel: 300,
+  stack: 50,
+  earn: 320,
+  boost: 340,
+  bust_strike: 640,
+  wipe: 400,
+  settle: 90,
 };
 
 export function speedFactor(speed: PlaybackSpeed): number {
