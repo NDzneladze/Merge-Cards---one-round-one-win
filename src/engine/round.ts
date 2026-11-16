@@ -1,35 +1,28 @@
 import type { DemoConfig, TierRule } from "./config";
-import { DEMO_CONFIG } from "./config";
+import { DEFAULT_DIFFICULTY, MICRO, configFor } from "./config";
 import { drawKind, drawValue } from "./draw";
 import { boardTotal, payoutMicros, stackTotal, valueToMicros } from "./money";
 import { createRng } from "./rng";
-import {
-  STACK_COLORS,
-  type Card,
-  type RoundEvent,
-  type RoundResult,
-  type ScriptedDraw,
-  type StackColor,
-  type StackState,
-  type WinTier,
-} from "./types";
+import type { Card, Difficulty, RoundEvent, RoundResult, ScriptedDraw, StackColor, StackState, WinTier } from "./types";
 
 export type ResolveInput = {
   seed: string;
   stake: number;
+  /** Chosen before Play and locked for the round. Ignored when `config` is given. */
+  difficulty?: Difficulty;
   config?: DemoConfig;
   /** Test/demo override. Production play leaves this empty and draws from the seed. */
   script?: readonly ScriptedDraw[];
 };
 
 /**
- * Purple targeting rule:
+ * Purple targeting rule over the difficulty's eligible piles only:
  *   1. the stack with the most cards,
  *   2. tie → the stack with the highest current total,
  *   3. tie → the leftmost stack.
- * Only stacks that hold at least one card are eligible. If every stack is
- * empty the boost lands on the leftmost stack and applies to whatever
- * arrives there later.
+ * Only stacks that hold at least one card are considered. If every stack is
+ * empty the boost lands on the leftmost eligible stack (Green on Easy and
+ * Medium, Blue on Hard) and applies to whatever arrives there later.
  */
 export function chooseBoostTarget(stacks: readonly StackState[]): StackColor {
   const eligible = stacks.filter((stack) => stack.cards.length > 0);
@@ -53,11 +46,13 @@ export function tierFor(multiplierMicros: bigint, tiers: readonly TierRule[]): W
   for (const rule of tiers) {
     if (multiplierMicros >= rule.minMicros) return rule.tier;
   }
+  if (multiplierMicros < MICRO) return "return";
+  if (multiplierMicros === MICRO) return "even";
   return "win";
 }
 
-function emptyStacks(): StackState[] {
-  return STACK_COLORS.map((color) => ({ color, cards: [], factor: 1 }));
+function emptyStacks(colors: readonly StackColor[]): StackState[] {
+  return colors.map((color) => ({ color, cards: [], factor: 1 }));
 }
 
 /**
@@ -69,12 +64,20 @@ function emptyStacks(): StackState[] {
  * One call debits the stake once and emits exactly one terminal `round_end`.
  */
 export function resolveRound(input: ResolveInput): RoundResult {
-  const config = input.config ?? DEMO_CONFIG;
+  const config = input.config ?? configFor(input.difficulty ?? DEFAULT_DIFFICULTY);
   if (!Number.isInteger(config.cardsPerPack) || config.cardsPerPack < 1) {
     throw new Error("cardsPerPack must be a positive integer");
   }
   if (!Number.isInteger(config.maxPacks) || config.maxPacks < 1) {
     throw new Error("maxPacks must be a positive integer");
+  }
+  if (config.colors.length === 0) {
+    throw new Error("A difficulty needs at least one prize colour");
+  }
+  for (const color of ["green", "blue", "gold"] as const) {
+    if (!config.colors.includes(color) && config.weights[color] !== 0) {
+      throw new Error(`${color} is not eligible on ${config.difficulty} but has a draw weight`);
+    }
   }
 
   const rng = createRng(input.seed);
@@ -102,15 +105,16 @@ export function resolveRound(input: ResolveInput): RoundResult {
     }
     if (kind === "red") return { kind: "red", id };
     if (kind === "purple") return { kind: "purple", id, factor: config.purpleFactor };
+    if (!config.colors.includes(kind)) throw new Error(`Scripted ${kind} card is not eligible on ${config.difficulty}`);
     const valueMicros =
       scripted && scripted.kind === kind && "value" in scripted && scripted.value !== undefined
         ? valueToMicros(scripted.value)
-        : drawValue(rng, config.ranges[kind]);
+        : drawValue(rng, config.values[kind]);
     return { kind: "value", id, color: kind, valueMicros };
   };
 
   const events: RoundEvent[] = [];
-  let stacks = emptyStacks();
+  let stacks = emptyStacks(config.colors);
   let outcome: RoundResult["outcome"] = "resolved";
   let lostMicros = 0n;
   let earned = 0;
@@ -130,7 +134,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
         lostMicros = boardTotal(stacks);
         cancelled = pending;
         pending = 0;
-        stacks = emptyStacks();
+        stacks = emptyStacks(config.colors);
         outcome = "bust";
         events.push({ type: "bust", cardId: card.id, lostMicros, cancelledPacks: cancelled });
         events.push({ type: "round_end", multiplierMicros: 0n, outcome: "bust", tier: "none" });
@@ -186,13 +190,17 @@ export function resolveRound(input: ResolveInput): RoundResult {
     events.push({ type: "round_end", multiplierMicros, outcome: "resolved", tier });
   }
 
+  const payout = payoutMicros(input.stake, multiplierMicros);
   return {
     seed: input.seed,
     stake: input.stake,
+    difficulty: config.difficulty,
+    colors: config.colors,
     events,
     outcome,
     multiplierMicros,
-    payoutMicros: payoutMicros(input.stake, multiplierMicros),
+    payoutMicros: payout,
+    netMicros: payout - BigInt(input.stake) * MICRO,
     tier,
     openedPacks: opened,
     earnedPacks: earned,
