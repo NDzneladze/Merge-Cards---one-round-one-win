@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 import type { RoundResult, WinTier } from "../engine/types";
 import { formatMicros, formatMultiplier } from "../engine/money";
-import type { PlaybackSpeed } from "../playback/timing";
-import { speedFactor } from "../playback/timing";
+import { PLAYBACK_SCALE } from "../playback/timing";
 
 type Props = {
   result: RoundResult;
   roundKey: string;
-  speed: PlaybackSpeed;
 };
 
 type CelebratedTier = Extract<WinTier, "big" | "huge" | "mega">;
@@ -31,12 +29,12 @@ function isCelebrated(tier: WinTier): tier is CelebratedTier {
  * dismisses it early. Ordinary results never open it, and nothing here
  * changes the settlement. No replay button: the host flow starts rounds.
  */
-export function ResultOverlay({ result, roundKey, speed }: Props) {
+export function ResultOverlay({ result, roundKey }: Props) {
   const tier = result.tier;
   const celebrate = isCelebrated(tier);
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const open = celebrate && dismissedKey !== roundKey;
-  const factor = Math.max(speedFactor(speed), 0.5);
+  const factor = PLAYBACK_SCALE;
   const [shown, setShown] = useState(0n);
 
   useEffect(() => {
