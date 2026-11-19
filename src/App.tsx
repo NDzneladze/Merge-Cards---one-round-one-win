@@ -10,7 +10,7 @@ import { createRoundSeed } from "./engine/rng";
 import { resolveRound } from "./engine/round";
 import type { Difficulty, RoundResult } from "./engine/types";
 import { buildTimeline, initialScene, reduceSteps, sceneFor, type Step } from "./playback/scene";
-import { delayFor, type PlaybackSpeed } from "./playback/timing";
+import { delayFor } from "./playback/timing";
 import "./styles.css";
 
 const BALANCE_KEY = "merge-packs-demo-balance-v1";
@@ -65,7 +65,6 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
 export function App() {
   const [balance, setBalance] = useState(readBalance);
   const [stake, setStake] = useState(DEFAULT_STAKE);
-  const [speed, setSpeed] = useState<PlaybackSpeed>("1x");
   const [seed, setSeed] = useState("");
   const [difficulty, setDifficulty] = useState<Difficulty>(DEFAULT_DIFFICULTY);
   const [muted, setMuted] = useState(false);
@@ -87,33 +86,22 @@ export function App() {
 
   useEffect(() => {
     if (!round || applied >= total) return;
-    if (speed === "instant") {
-      setApplied(total);
-      return;
-    }
     const step = round.steps[applied];
     if (!step) return;
-    const timer = window.setTimeout(() => setApplied((current) => current + 1), delayFor(step.kind, speed));
+    const timer = window.setTimeout(() => setApplied((current) => current + 1), delayFor(step.kind));
     return () => window.clearTimeout(timer);
-  }, [round, applied, speed, total]);
+  }, [round, applied, total]);
 
   useEffect(() => {
     if (!round || applied === 0) return;
-    const token = `${round.playId}:${applied}:${speed}`;
+    const token = `${round.playId}:${applied}`;
     if (sounded.current === token) return;
     sounded.current = token;
-    if (speed === "instant") {
-      if (applied !== total) return;
-      const last = round.steps[total - 1];
-      const cue = last ? cueFor(last) : null;
-      if (cue) playCue(cue, muted);
-      return;
-    }
     const step = round.steps[applied - 1];
     if (!step) return;
     const cue = cueFor(step);
     if (cue) playCue(cue, muted);
-  }, [applied, muted, round, speed, total]);
+  }, [applied, muted, round, total]);
 
   const settledFor = useRef<string | null>(null);
   useEffect(() => {
@@ -177,7 +165,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.6 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.7 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">
@@ -194,7 +182,7 @@ export function App() {
       </header>
 
       <main>
-        <PackStage scene={scene} speed={speed} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
+        <PackStage scene={scene} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
       </main>
 
       <BetPanel
@@ -203,12 +191,10 @@ export function App() {
         playing={playing}
         canPlay={canPlay}
         broke={broke}
-        speed={speed}
         seed={seed}
         difficulty={difficulty}
         onStake={setStake}
         onPlay={play}
-        onSpeed={setSpeed}
         onSeed={setSeed}
         onDifficulty={(next) => {
           if (!playing) setDifficulty(next);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveRound } from "../engine/round";
 import type { ScriptedDraw } from "../engine/types";
 import { applyStep, buildTimeline, initialScene, liveCardIds, reduceEvents, reduceSteps } from "./scene";
-import { delayFor } from "./timing";
+import { delayFor, LEGACY_1X_MS, PLAYBACK_SCALE } from "./timing";
 
 const g = (value: number): ScriptedDraw => ({ kind: "green", value });
 const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
@@ -240,37 +240,32 @@ describe("scene", () => {
     expect(settled.cancelledPacks).toBe(2);
   });
 
-  it("changes only timing when playback speed changes", () => {
+  it("plays at the former 2× tempo and has no speed argument that could change the deal", () => {
     const result = resolveRound({ seed: "speed", stake: 9 });
     const again = resolveRound({ seed: "speed", stake: 9 });
     expect(reduceEvents(result.events)).toEqual(reduceEvents(again.events));
     expect(buildTimeline(again.events)).toEqual(buildTimeline(result.events));
-    expect(delayFor("boost", "1x")).toBeGreaterThan(delayFor("boost", "2x"));
-    expect(delayFor("eject", "2x")).toBeGreaterThan(0);
-    expect(delayFor("bust_strike", "instant")).toBe(0);
-    expect(delayFor("earn", "instant")).toBe(0);
+    expect(PLAYBACK_SCALE).toBe(0.5);
+    expect(delayFor.length).toBe(1);
+    for (const kind of Object.keys(LEGACY_1X_MS) as (keyof typeof LEGACY_1X_MS)[]) {
+      expect(delayFor(kind)).toBe(Math.round(LEGACY_1X_MS[kind] * PLAYBACK_SCALE));
+      expect(delayFor(kind)).toBeGreaterThan(0);
+      expect(delayFor(kind)).toBeLessThan(LEGACY_1X_MS[kind]);
+    }
   });
 
-  it("keeps a safe one-pack round inside three to five seconds at 1×", () => {
+  it("keeps a one-pack round at half the old 1× window, which is the former 2× pace", () => {
     const result = resolveRound({ seed: "pace", stake: 1, script: [g(0.3), b(1), g(0.3), g(0.3), b(1), g(0.3)] });
     const steps = buildTimeline(result.events);
-    const ms = steps.reduce((sum, step) => sum + delayFor(step.kind, "1x"), 0);
-    expect(ms).toBeGreaterThanOrEqual(3_000);
-    expect(ms).toBeLessThanOrEqual(5_000);
+    const ms = steps.reduce((sum, step) => sum + delayFor(step.kind), 0);
+    const legacy = steps.reduce((sum, step) => sum + LEGACY_1X_MS[step.kind], 0);
+    expect(legacy).toBeGreaterThanOrEqual(3_000);
+    expect(legacy).toBeLessThanOrEqual(5_000);
+    expect(ms).toBeGreaterThanOrEqual(1_500);
+    expect(ms).toBeLessThanOrEqual(2_500);
+    expect(ms).toBe(Math.round(legacy * PLAYBACK_SCALE));
     // The handoff onto a pile is shorter than the flight, so the next launch overlaps the tuck.
-    expect(delayFor("stack", "1x")).toBeLessThan(delayFor("eject", "1x"));
-    expect(delayFor("eject", "1x") + delayFor("travel", "1x")).toBeLessThanOrEqual(500);
-  });
-
-  it("scales every delay with speed and does not change which steps exist", () => {
-    const result = resolveRound({ seed: "speed", stake: 9 });
-    const steps = buildTimeline(result.events);
-    const kinds = [...new Set(steps.map((step) => step.kind))];
-    for (const kind of kinds) {
-      expect(delayFor(kind, "2x")).toBe(Math.round(delayFor(kind, "1x") * 0.5));
-      expect(delayFor(kind, "instant")).toBe(0);
-      expect(delayFor(kind, "1x")).toBeGreaterThan(0);
-    }
-    expect(buildTimeline(result.events).map((step) => step.kind)).toEqual(steps.map((step) => step.kind));
+    expect(delayFor("stack")).toBeLessThan(delayFor("eject"));
+    expect(delayFor("eject") + delayFor("travel")).toBeLessThanOrEqual(250);
   });
 });

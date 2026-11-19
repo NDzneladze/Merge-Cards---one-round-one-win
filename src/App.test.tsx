@@ -41,12 +41,16 @@ describe("App", () => {
     expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(creditsToMicros(STARTING_BALANCE_CREDITS)));
     expect(screen.getByTestId("difficulty-medium")).toHaveAttribute("aria-pressed", "true");
     expect(pileColors()).toEqual(["green", "blue", "gold"]);
-    await user.click(screen.getByTestId("speed-instant"));
+    expect(screen.queryByTestId("speed-1x")).toBeNull();
+    expect(screen.queryByTestId("speed-2x")).toBeNull();
+    expect(screen.queryByTestId("speed-instant")).toBeNull();
+    expect(screen.queryByRole("group", { name: /playback speed/i })).toBeNull();
+    expect(screen.queryByText(/animation only/i)).toBeNull();
     await pinSeed(user, seed);
     await user.click(screen.getByTestId("play-button"));
 
-    await waitFor(() => expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
-    expect(screen.getByTestId("payout-meter")).toHaveTextContent(`+${formatMicros(engine.payoutMicros)}`);
+    await waitFor(() => expect(screen.getByTestId("payout-meter")).toHaveTextContent(`+${formatMicros(engine.payoutMicros)}`));
+    expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
     expect(meterOf("payout-meter")).toHaveTextContent(`net +${formatMicros(engine.netMicros)}`);
     expect(screen.getByTestId("pack-meter")).toHaveTextContent("2/2");
     expect(screen.getByTestId("pack-stack")).toHaveAttribute("data-waiting", "0");
@@ -76,7 +80,6 @@ describe("App", () => {
     expect(pileColors()).toEqual(["blue", "gold"]);
     expect(screen.getByTestId("difficulty-blurb")).toHaveTextContent(/Blue \+ Gold only/);
 
-    await user.click(screen.getByTestId("speed-1x"));
     await user.click(screen.getByTestId("play-button"));
     expect(screen.getByTestId("difficulty-easy")).toBeDisabled();
     expect(screen.getByTestId("difficulty-medium")).toBeDisabled();
@@ -91,13 +94,13 @@ describe("App", () => {
     expect(engine.tier).toBe("return");
     expect(engine.multiplierMicros).toBe(700_000n);
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Small return" }));
     expect(screen.getByTestId("difficulty-easy")).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByTestId("play-button"));
 
-    await waitFor(() => expect(screen.getByTestId("total-meter")).toHaveTextContent("0.70×"));
+    await waitFor(() => expect(screen.getByTestId("result-badge")).toHaveTextContent("0.70×"));
+    expect(screen.getByTestId("total-meter")).toHaveTextContent("0.70×");
     expect(screen.getByTestId("result-badge")).toHaveTextContent(/Return/);
     expect(screen.getByTestId("result-badge")).toHaveTextContent("0.70×");
     expect(screen.queryByTestId("win-badge")).toBeNull();
@@ -118,7 +121,6 @@ describe("App", () => {
     const engine = resolveRound({ seed: "demo-11", stake: 10, difficulty: "easy" });
     expect(engine.tier).toBe("win");
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await pinSeed(user, "demo-11", "easy");
     await user.click(screen.getByTestId("play-button"));
     await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
@@ -133,7 +135,6 @@ describe("App", () => {
     const engine = resolveRound({ seed: "demo-10", stake: 10, difficulty: "hard" });
     expect(engine.tier).toBe("big");
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Hard hit" }));
     expect(screen.getByTestId("difficulty-hard")).toHaveAttribute("aria-pressed", "true");
@@ -149,7 +150,6 @@ describe("App", () => {
     const engine = resolveRound({ seed: "demo-441", stake: 10, difficulty: "medium" });
     expect(engine.cancelledPacks).toBe(2);
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByTestId("play-button"));
@@ -181,14 +181,13 @@ describe("App", () => {
     const engine = resolveRound({ seed: "demo-1725", stake: 10, difficulty: "medium" });
     expect(engine.openedPacks).toBe(3);
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Pack chain" }));
     await user.click(screen.getByTestId("play-button"));
-    await waitFor(() => expect(screen.getByTestId("pack-meter")).toHaveTextContent("3/3"));
+    await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
+    expect(screen.getByTestId("pack-meter")).toHaveTextContent("3/3");
     expect(screen.getByTestId("pack-stack")).toHaveAttribute("data-waiting", "0");
     expect(screen.getByTestId("pack")).toHaveClass("is-bonus");
-    expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
     expect(document.querySelectorAll(".stack-card").length).toBe(engine.stacks.reduce((sum, stack) => sum + stack.cards.length, 0));
   });
 
@@ -197,7 +196,6 @@ describe("App", () => {
     const engine = resolveRound({ seed: "demo-105", stake: 10, difficulty: "medium" });
     expect(engine.tier).toBe("big");
     render(<App />);
-    await user.click(screen.getByTestId("speed-instant"));
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Big win" }));
     await user.click(screen.getByTestId("play-button"));

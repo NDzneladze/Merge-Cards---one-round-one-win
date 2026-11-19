@@ -66,7 +66,7 @@ function simulate(difficulty: Difficulty): Stats {
       stats.maxSeed = seed;
     }
     if (i < 2_000) {
-      stats.durationMs += buildTimeline(result.events).reduce((sum, step) => sum + delayFor(step.kind, "1x"), 0);
+      stats.durationMs += buildTimeline(result.events).reduce((sum, step) => sum + delayFor(step.kind), 0);
     }
   }
   return stats;
