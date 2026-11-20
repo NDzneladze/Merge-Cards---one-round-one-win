@@ -1,0 +1,91 @@
+import type { Difficulty, ScriptedDraw } from "./engine/types";
+
+/**
+ * Deterministic boards for screenshots. They call the same resolver with a
+ * script, so the weights are not involved and the math tables stay as they are.
+ */
+
+const extra: ScriptedDraw = { kind: "extra" };
+const purple: ScriptedDraw = { kind: "purple" };
+const grey: ScriptedDraw = { kind: "grey" };
+const red: ScriptedDraw = { kind: "red" };
+const g = (value = 0.13): ScriptedDraw => ({ kind: "green", value });
+const b = (value = 1.5): ScriptedDraw => ({ kind: "blue", value });
+const gold = (value = 8): ScriptedDraw => ({ kind: "gold", value });
+
+/** Six packs: 5 extras, 27 greens at 0.13×, then blue and gold. */
+export function green27Script(): ScriptedDraw[] {
+  const greens = Array.from({ length: 27 }, () => g(0.13));
+  const rest: ScriptedDraw[] = [b(1.25), b(2.65), gold(6.5), gold(12.5)];
+  const slots: ScriptedDraw[] = [];
+  let gi = 0;
+  let ri = 0;
+  for (let pack = 0; pack < 6; pack += 1) {
+    for (let slot = 0; slot < 6; slot += 1) {
+      if (slot === 0 && pack < 5) slots.push(extra);
+      else if (gi < greens.length) slots.push(greens[gi++]!);
+      else slots.push(rest[ri++]!);
+    }
+  }
+  return slots;
+}
+
+export type FixtureId = "green27" | "partial" | "waiting" | "bust" | "grey" | "fullstack" | "easy" | "hard";
+
+export type Fixture = {
+  id: FixtureId;
+  seed: string;
+  difficulty: Difficulty;
+  script: readonly ScriptedDraw[];
+};
+
+export const FIXTURES: Record<FixtureId, Fixture> = {
+  green27: {
+    id: "green27",
+    seed: "fixture-green27",
+    difficulty: "medium",
+    script: green27Script(),
+  },
+  partial: {
+    id: "partial",
+    seed: "fixture-partial",
+    difficulty: "medium",
+    script: [g(0.13), b(2.65), gold(12.5), g(0.2), b(1.05), g(0.18)],
+  },
+  waiting: {
+    id: "waiting",
+    seed: "fixture-waiting",
+    difficulty: "medium",
+    script: [extra, extra, g(0.13), b(1.8), gold(8), g(0.25)],
+  },
+  bust: {
+    id: "bust",
+    seed: "fixture-bust",
+    difficulty: "medium",
+    script: [extra, g(0.4), b(1.5), extra, red],
+  },
+  grey: {
+    id: "grey",
+    seed: "fixture-grey",
+    difficulty: "medium",
+    script: [g(0.2), grey, b(1.4), g(0.13), gold(5), g(0.15)],
+  },
+  fullstack: {
+    id: "fullstack",
+    seed: "fixture-fullstack",
+    difficulty: "medium",
+    script: [extra, g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), purple, g(0.2), g(0.2), g(0.2), g(0.2), g(0.2)],
+  },
+  easy: {
+    id: "easy",
+    seed: "fixture-easy",
+    difficulty: "easy",
+    script: [g(0.12), b(1.2), g(0.13), b(1.5), g(0.1), g(0.18)],
+  },
+  hard: {
+    id: "hard",
+    seed: "fixture-hard",
+    difficulty: "hard",
+    script: [b(1.4), gold(9), b(2.2), gold(14), b(1.1), gold(6)],
+  },
+};
