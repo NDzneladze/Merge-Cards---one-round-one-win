@@ -38,6 +38,9 @@ describe("App", () => {
     expect(engine.openedPacks).toBe(2);
     render(<App />);
 
+    expect(screen.getByText(/Prototype v0.9/)).toBeInTheDocument();
+    expect(screen.getByTestId("table-shell").querySelector(".controls")).toBeTruthy();
+    expect(screen.getByTestId("table-shell").querySelector("main")).toBeTruthy();
     expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(creditsToMicros(STARTING_BALANCE_CREDITS)));
     expect(screen.getByTestId("difficulty-medium")).toHaveAttribute("aria-pressed", "true");
     expect(pileColors()).toEqual(["green", "blue", "gold"]);
