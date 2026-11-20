@@ -1,13 +1,16 @@
 import { forwardRef } from "react";
+import { FULL_STACK_COUNT } from "../engine/config";
 import type { StackColor } from "../engine/types";
 import { formatMultiplier } from "../engine/money";
 import { labelColor, type StackView } from "../playback/scene";
-import { CardFace, Mark } from "./CardFace";
+import { CardBack, CardFace, Mark } from "./CardFace";
 
 type Props = {
   colors: readonly StackColor[];
   stacks: Record<StackColor, StackView>;
   dead: boolean;
+  /** Compact n/10 marker. Only while the paid round is still unfolding. */
+  showProgress: boolean;
   registerSlot: (color: StackColor, element: HTMLDivElement | null) => void;
 };
 
@@ -16,23 +19,25 @@ type Props = {
  * A pile is the cards themselves: the newest face is in front at the bottom
  * and each older card peeks above it by exactly its corner strip.
  */
-export function CardBoard({ colors, stacks, dead, registerSlot }: Props) {
+export function CardBoard({ colors, stacks, dead, showProgress, registerSlot }: Props) {
   return (
     <div className={`board piles-${colors.length} ${dead ? "is-dead" : ""}`} aria-label="Card piles">
       {colors.map((color) => (
-        <Pile key={color} stack={stacks[color]} ref={(element) => registerSlot(color, element)} />
+        <Pile key={color} stack={stacks[color]} showProgress={showProgress} ref={(element) => registerSlot(color, element)} />
       ))}
     </div>
   );
 }
 
-const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ stack }, ref) {
+const Pile = forwardRef<HTMLDivElement, { stack: StackView; showProgress: boolean }>(function Pile({ stack, showProgress }, ref) {
   const live = stack.cards.filter((card) => card.state !== "dying");
   const boosted = stack.factor > 1;
   const name = labelColor(stack.color);
+  const occupied = stack.cards.length > 0;
+  const progress = showProgress && !stack.fullStack && live.length > 0;
   return (
     <section
-      className={`pile tone-${stack.color} ${stack.hot ? "is-hot" : ""} ${live.length === 0 ? "is-empty" : ""} ${boosted ? "is-boosted" : ""}`}
+      className={`pile tone-${stack.color} ${stack.hot ? "is-hot" : ""} ${occupied ? "" : "is-empty"} ${boosted ? "is-boosted" : ""} ${stack.fullStack ? "is-full" : ""}`}
       aria-label={`${name} pile`}
       data-testid={`pile-${stack.color}`}
     >
@@ -46,7 +51,9 @@ const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ st
         ) : null}
       </header>
       <div className="pile-well" style={{ ["--n" as string]: Math.max(stack.cards.length, 1) }}>
-        <div className="pile-slot" ref={ref} aria-hidden="true" />
+        <div className="pile-slot" ref={ref} aria-hidden="true">
+          {occupied ? null : <CardBack size="stack" className="landing-mark" />}
+        </div>
         {stack.cards.map((card, index) => (
           <div
             key={card.id}
@@ -59,9 +66,16 @@ const Pile = forwardRef<HTMLDivElement, { stack: StackView }>(function Pile({ st
         ))}
         {stack.boostKey ? <div key={stack.boostKey} className="pile-flash" aria-hidden="true" /> : null}
       </div>
+      {stack.fullStack ? (
+        <p key={stack.fullStackKey ?? "seal"} className="pile-seal" data-testid={`fullstack-${stack.color}`}>
+          Full stack ×2
+        </p>
+      ) : null}
       <footer className="pile-total">
-        <span>{live.length}</span>
-        <strong data-testid={`stack-${stack.color}-total`}>{live.length === 0 && !boosted ? "—" : formatMultiplier(stack.totalMicros)}</strong>
+        <span className={progress ? "is-progress" : ""} data-testid={progress ? `progress-${stack.color}` : undefined}>
+          {progress ? `${live.length}/${FULL_STACK_COUNT}` : occupied ? stack.cards.length : 0}
+        </span>
+        <strong data-testid={`stack-${stack.color}-total`}>{occupied || boosted ? formatMultiplier(stack.totalMicros) : "—"}</strong>
       </footer>
     </section>
   );

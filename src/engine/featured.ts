@@ -7,12 +7,19 @@ export type FeaturedSeed = {
   difficulty: Difficulty;
 };
 
-/** Pinned demo seeds. Outcomes are locked by tests; they are not a math sample. */
+/**
+ * Pinned demo seeds for the v0.8 weights. Outcomes are locked by tests.
+ * They are illustrations, not a math sample. Grey, Full Stack and
+ * Stack + purple are natural deals, not scripted hands.
+ */
 export const FEATURED_SEEDS: readonly FeaturedSeed[] = [
-  { id: "chain", label: "Pack chain", seed: "demo-1725", difficulty: "medium" },
-  { id: "small", label: "Small return", seed: "demo-6", difficulty: "easy" },
-  { id: "boost", label: "Boost", seed: "demo-97", difficulty: "medium" },
-  { id: "hard", label: "Hard hit", seed: "demo-10", difficulty: "hard" },
-  { id: "big", label: "Big win", seed: "demo-105", difficulty: "medium" },
-  { id: "bust", label: "Red", seed: "demo-441", difficulty: "medium" },
+  { id: "chain", label: "Pack chain", seed: "demo-282", difficulty: "medium" },
+  { id: "small", label: "Small return", seed: "demo-21", difficulty: "easy" },
+  { id: "boost", label: "Boost", seed: "demo-14", difficulty: "medium" },
+  { id: "hard", label: "Hard hit", seed: "demo-141", difficulty: "hard" },
+  { id: "big", label: "Big win", seed: "demo-104", difficulty: "medium" },
+  { id: "bust", label: "Red", seed: "demo-70", difficulty: "medium" },
+  { id: "grey", label: "Grey", seed: "demo-48", difficulty: "easy" },
+  { id: "stack", label: "Full stack", seed: "demo-2", difficulty: "easy" },
+  { id: "stackPurple", label: "Stack + purple", seed: "demo-104", difficulty: "easy" },
 ];

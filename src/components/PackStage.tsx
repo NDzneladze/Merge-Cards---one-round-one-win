@@ -30,6 +30,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
   const stageRef = useRef<HTMLElement>(null);
   const mouthRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
+  const discardRef = useRef<HTMLDivElement>(null);
   const boostersRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Partial<Record<StackColor, HTMLDivElement | null>>>({});
   const [flight, setFlight] = useState<Flight | null>(null);
@@ -51,30 +52,19 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       const actionH = height - hud - caption - 10;
       const piles = scene.colors.length;
       const short = window.innerHeight <= 780;
-      const lip = short ? 20 : viewport < 760 ? 16 : 32;
-      const peek = viewport < 760 ? 12 : 16;
-      // Tag, total, gap, two sealed-pack lips, and five peeked corners.
-      const fixed = 38 + lip * 2 + 8 + peek * 5;
+      const narrow = viewport < 760;
+      const lip = short ? 18 : narrow ? 16 : 30;
+      const peek = narrow ? 11 : 14;
+      // One card of height, the pack, and the two sealed lips under it.
       const packHFactor = 1.42 * 0.9;
-      const byHeight = (actionH - fixed) / (1.4 + packHFactor);
-      const byWidth = (viewport - 36) / (piles === 2 ? 2.45 : 3.2);
-      const card = Math.round(Math.max(64, Math.min(232, byWidth, byHeight)));
-      const minGap = Math.round(Math.min(22, Math.max(8, card * 0.12)));
-      const maxGap = Math.round(card * (short ? 0.9 : 0.72));
-      const chrome = 72;
-      const span = (gap: number) => card * piles + gap * Math.max(piles - 1, 0) + chrome;
-      const tight = span(minGap);
-      const roomy = span(maxGap);
-      const desktop = viewport >= 760;
-      // Stay wide enough that the stake row and title do not wrap, which
-      // would shrink the stage and collapse the cards. Tall 3-pile layouts
-      // are already wider than this floor.
-      const controlFloor = desktop ? Math.min(viewport - 12, 760) : 0;
-      const preferred = Math.min(viewport - 8, Math.max(roomy, controlFloor));
-      const frame = desktop ? Math.min(viewport - 8, Math.max(tight, preferred)) : viewport;
-      const spread = Math.max(0, frame - chrome - card * piles);
-      const gap = piles > 1 ? Math.min(maxGap, Math.max(minGap, Math.round(spread / (piles - 1)))) : 0;
-      app.style.maxWidth = `${Math.round(frame)}px`;
+      const byHeight = (actionH - lip * 2 - 52) / (1.4 + packHFactor);
+      const byWidth = (Math.min(viewport, 1080) - 40) / (piles === 2 ? 2.35 : 3.35);
+      // Cap the face so an empty lane cannot become a giant panel, and a red
+      // strike cannot grow into a slab that covers the HUD.
+      const cap = short ? 108 : narrow ? 100 : 124;
+      const card = Math.round(Math.max(72, Math.min(cap, byWidth, byHeight)));
+      const gap = piles > 1 ? (narrow ? 10 : short ? 12 : 16) : 0;
+      app.style.maxWidth = "";
       stage.style.setProperty("--card-w", `${card}px`);
       stage.style.setProperty("--peek", `${peek}px`);
       stage.style.setProperty("--lip", `${lip}px`);
@@ -106,11 +96,13 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       const target =
         flyer.target === "center"
           ? centerRef.current
-          : flyer.target === "boosters"
-            ? boostersRef.current
-            : flyer.target
-              ? slotRefs.current[flyer.target]
-              : null;
+          : flyer.target === "discard"
+            ? discardRef.current
+            : flyer.target === "boosters"
+              ? boostersRef.current
+              : flyer.target
+                ? slotRefs.current[flyer.target]
+                : null;
       const rect = target?.getBoundingClientRect();
       if (rect) {
         tx = rect.left + rect.width / 2 - stage.left - x;
@@ -154,9 +146,9 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
             ? "win"
             : verdict === "even"
               ? "break-even"
-              : verdict === "return"
-                ? "return · below stake"
-                : "nothing collected";
+      : verdict === "return"
+        ? "return · below stake"
+        : "no win · zero return";
 
   const payoutValue = finalShown && result ? (result.payoutMicros > 0n ? `+${formatMicros(result.payoutMicros)}` : "0.00") : "—";
   const netHint =
@@ -181,6 +173,14 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
   const waiting = dead ? scene.cancelledPacks : scene.pendingPacks;
   const layers = Math.min(waiting, BOOSTER_LAYERS);
   const bonusPack = scene.packNo > 1;
+  const packOpen = scene.pack === "open";
+  const packDetail = idle
+    ? `${scene.cardsInPack} cards`
+    : scene.pack === "dead"
+      ? "busted"
+      : scene.pack === "spent"
+        ? "closed"
+        : `${scene.cardsLeftInPack} left`;
 
   return (
     <section
@@ -202,14 +202,16 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
           tone={verdict ?? undefined}
         />
         <Meter label="Payout" value={payoutValue} hint={netHint} testId="payout-meter" />
-        {verdict === "win" || verdict === "even" || verdict === "return" || verdict === "bust" ? (
+        {verdict === "win" || verdict === "even" || verdict === "return" || verdict === "bust" || verdict === "none" ? (
           <p
             key={roundKey}
             className={`verdict-badge tone-${verdict}`}
-            data-testid={verdict === "win" ? "win-badge" : verdict === "bust" ? "bust-badge" : "result-badge"}
+            data-testid={verdict === "win" ? "win-badge" : verdict === "bust" ? "bust-badge" : verdict === "none" ? "nowin-badge" : "result-badge"}
             role="status"
           >
-            <span>{verdict === "win" ? "Win" : verdict === "even" ? "Break-even" : verdict === "return" ? "Return" : "Bust"}</span>
+            <span>
+              {verdict === "win" ? "Win" : verdict === "even" ? "Break-even" : verdict === "return" ? "Return" : verdict === "bust" ? "Bust" : "No win"}
+            </span>
             <strong>{formatMultiplier(dead ? 0n : scene.totalMicros)}</strong>
           </p>
         ) : null}
@@ -221,11 +223,18 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
 
       <div className="action">
         <div className="arena">
-          <CardBoard colors={scene.colors} stacks={scene.stacks} dead={dead} registerSlot={registerSlot} />
+          <CardBoard
+            colors={scene.colors}
+            stacks={scene.stacks}
+            dead={dead}
+            showProgress={scene.status === "playing"}
+            registerSlot={registerSlot}
+          />
           <div ref={centerRef} className="arena-center" aria-hidden="true" />
-          {scene.redCard && dead ? (
-            <div className="red-strike" data-testid="red-strike">
-              <CardFace card={scene.redCard} size="hero" />
+          <div ref={discardRef} className="discard-anchor" aria-hidden="true" />
+          {scene.redCard && (scene.bustPhase === "strike" || scene.bustPhase === "wipe") ? (
+            <div className={`red-strike ${scene.bustPhase === "wipe" ? "is-exit" : ""}`} data-testid="red-strike">
+              <CardFace card={scene.redCard} size="fly" />
             </div>
           ) : null}
           {burst ? (
@@ -267,8 +276,9 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
               <div className="pack-glow" />
               <PackArt
                 bonus={bonusPack}
+                sealed={!packOpen}
                 product={bonusPack ? "Bonus pack" : "Merge pack"}
-                detail={idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}
+                detail={packDetail}
                 cardsLeft={scene.cardsLeftInPack}
                 mouthRef={mouthRef}
               />
