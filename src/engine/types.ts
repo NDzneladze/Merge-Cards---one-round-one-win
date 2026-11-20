@@ -5,22 +5,30 @@ export type StackColor = (typeof STACK_COLORS)[number];
 
 export type Difficulty = "easy" | "medium" | "hard";
 
-/** Everything a pack can contain. */
-export type CardKind = StackColor | "purple" | "red" | "extra";
+/** Everything a pack can contain. `grey` is a safe blank: 0×, not a prize pile. */
+export type CardKind = StackColor | "grey" | "purple" | "red" | "extra";
 
 export type ValueCard = { kind: "value"; id: string; color: StackColor; valueMicros: bigint };
 export type PurpleCard = { kind: "purple"; id: string; factor: number };
 export type RedCard = { kind: "red"; id: string };
 /** +1 PACK. Queues one more pack of the same round at no extra cost. */
 export type ExtraPackCard = { kind: "extra"; id: string };
+/** Safe blank. Occupies one of the six slots and pays nothing. */
+export type GreyCard = { kind: "grey"; id: string };
 
-export type Card = ValueCard | PurpleCard | RedCard | ExtraPackCard;
+export type Card = ValueCard | PurpleCard | RedCard | ExtraPackCard | GreyCard;
 
 export type StackState = {
   color: StackColor;
   cards: readonly ValueCard[];
-  /** Product of every purple boost that landed on this stack. 1 when none. */
+  /** Product of every purple boost that landed on this stack. 1 when none. Equals 2^purpleCount. */
   factor: number;
+  /**
+   * True after this pile has collected `FULL_STACK_COUNT` value cards once.
+   * Multiplies the pile by `FULL_STACK_FACTOR`. Never set twice, and cleared
+   * when a red card wipes the board.
+   */
+  fullStack: boolean;
 };
 
 /**
@@ -58,6 +66,17 @@ export type RoundEvent =
       totalMicros: bigint;
     }
   | {
+      type: "full_stack";
+      cardId: string;
+      color: StackColor;
+      /** Value cards in the pile at the moment it first reached the threshold. Always the threshold. */
+      count: number;
+      /** The one-shot pile multiplier. 2 in the prototype. */
+      factor: number;
+      stackTotalMicros: bigint;
+      totalMicros: bigint;
+    }
+  | {
       type: "pack_earned";
       cardId: string;
       /** Packs waiting after this award, the current pack excluded. */
@@ -65,6 +84,7 @@ export type RoundEvent =
       /** Packs opened so far plus every pack waiting. */
       totalPacks: number;
     }
+  | { type: "grey"; cardId: string }
   | { type: "bust"; cardId: string; lostMicros: bigint; cancelledPacks: number }
   | { type: "round_end"; multiplierMicros: bigint; outcome: RoundOutcome; tier: WinTier };
 
@@ -72,7 +92,8 @@ export type ScriptedDraw =
   | { kind: StackColor; /** Multiplier as a plain number, e.g. 0.31. Drawn from the seed when omitted. */ value?: number }
   | { kind: "purple" }
   | { kind: "red" }
-  | { kind: "extra" };
+  | { kind: "extra" }
+  | { kind: "grey" };
 
 export type RoundResult = {
   seed: string;
@@ -98,6 +119,10 @@ export type RoundResult = {
   stacks: readonly StackState[];
   /** Board value wiped by the red card. Zero on a safe finish. */
   lostMicros: bigint;
+  /** Safe blank cards revealed. They pay 0× and never join a pile. */
+  greyCards: number;
+  /** Piles that unlocked Full Stack and still paid. Zero after a red card. */
+  fullStackPiles: number;
   /** The purchased stake is debited once. */
   stakeDebits: 1;
 };

@@ -1,13 +1,17 @@
-import { MICRO } from "./config";
+import { FULL_STACK_FACTOR, MICRO } from "./config";
 import type { StackState } from "./types";
 
 export function stackSum(stack: Pick<StackState, "cards">): bigint {
   return stack.cards.reduce<bigint>((sum, card) => sum + card.valueMicros, 0n);
 }
 
-/** Sum of the stack's cards times every purple boost that landed on it. */
+/**
+ * pile = sum(value cards) × purpleFactor × (fullStack ? 2 : 1)
+ * purpleFactor is 2^purpleBoostCount. Full Stack does not change the card count.
+ */
 export function stackTotal(stack: StackState): bigint {
-  return stackSum(stack) * BigInt(stack.factor);
+  const stackBonus = stack.fullStack ? BigInt(FULL_STACK_FACTOR) : 1n;
+  return stackSum(stack) * BigInt(stack.factor) * stackBonus;
 }
 
 export function boardTotal(stacks: readonly StackState[]): bigint {

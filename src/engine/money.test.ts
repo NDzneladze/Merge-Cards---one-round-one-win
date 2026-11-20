@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { boardTotal, formatMicros, formatMultiplier, payoutMicros, stackTotal, valueToMicros } from "./money";
 import type { StackState } from "./types";
 
-const stack = (color: StackState["color"], values: bigint[], factor = 1): StackState => ({
+const stack = (color: StackState["color"], values: bigint[], factor = 1, fullStack = false): StackState => ({
   color,
   factor,
+  fullStack,
   cards: values.map((valueMicros, index) => ({ kind: "value", id: `${color}${index}`, color, valueMicros })),
 });
 
@@ -16,6 +17,9 @@ describe("fixed-point money", () => {
     expect(boardTotal([green, blue, stack("gold", [])])).toBe(1_970_000n);
     expect(formatMultiplier(1_970_000n)).toBe("1.97×");
     expect(formatMultiplier(0n)).toBe("0.00×");
+    const stacked = stack("green", [310_000n, 150_000n], 2, true);
+    // (0.31 + 0.15) × purple 2 × full stack 2
+    expect(stackTotal(stacked)).toBe(1_840_000n);
   });
 
   it("rounds display half away from zero at the cent", () => {

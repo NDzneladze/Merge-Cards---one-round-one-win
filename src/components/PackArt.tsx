@@ -16,7 +16,7 @@ type Props = {
  * logo. The flap, crimp and card backs are what make it a pack of cards.
  */
 export function PackArt({ bonus, sealed = false, product, detail, cardsLeft = 0, mouthRef }: Props) {
-  const backs = sealed ? 3 : cardsLeft;
+  const backs = sealed ? 0 : cardsLeft;
   return (
     <div className={`pack-art ${bonus ? "is-bonus" : ""} ${sealed ? "is-sealed" : ""}`} data-brand="rainbet">
       <span className="pack-edge" aria-hidden="true" />

@@ -1,5 +1,5 @@
 import type { DemoConfig, TierRule } from "./config";
-import { DEFAULT_DIFFICULTY, MICRO, configFor } from "./config";
+import { DEFAULT_DIFFICULTY, FULL_STACK_COUNT, FULL_STACK_FACTOR, MICRO, configFor } from "./config";
 import { drawKind, drawValue } from "./draw";
 import { boardTotal, payoutMicros, stackTotal, valueToMicros } from "./money";
 import { createRng } from "./rng";
@@ -18,8 +18,9 @@ export type ResolveInput = {
 /**
  * Purple targeting rule over the difficulty's eligible piles only:
  *   1. the stack with the most cards,
- *   2. tie → the stack with the highest current total,
+ *   2. tie → the stack with the highest current total (purple and Full Stack included),
  *   3. tie → the leftmost stack.
+ * Card count is the number of value cards only. Full Stack does not multiply the count.
  * Only stacks that hold at least one card are considered. If every stack is
  * empty the boost lands on the leftmost eligible stack (Green on Easy and
  * Medium, Blue on Hard) and applies to whatever arrives there later.
@@ -52,7 +53,7 @@ export function tierFor(multiplierMicros: bigint, tiers: readonly TierRule[]): W
 }
 
 function emptyStacks(colors: readonly StackColor[]): StackState[] {
-  return colors.map((color) => ({ color, cards: [], factor: 1 }));
+  return colors.map((color) => ({ color, cards: [], factor: 1, fullStack: false }));
 }
 
 /**
@@ -104,6 +105,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
       return { kind: "extra", id };
     }
     if (kind === "red") return { kind: "red", id };
+    if (kind === "grey") return { kind: "grey", id };
     if (kind === "purple") return { kind: "purple", id, factor: config.purpleFactor };
     if (!config.colors.includes(kind)) throw new Error(`Scripted ${kind} card is not eligible on ${config.difficulty}`);
     const valueMicros =
@@ -119,6 +121,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
   let lostMicros = 0n;
   let earned = 0;
   let cancelled = 0;
+  let greyCards = 0;
   let ended = false;
 
   while (!ended) {
@@ -149,6 +152,12 @@ export function resolveRound(input: ResolveInput): RoundResult {
         continue;
       }
 
+      if (card.kind === "grey") {
+        greyCards += 1;
+        events.push({ type: "grey", cardId: card.id });
+        continue;
+      }
+
       if (card.kind === "purple") {
         const color = chooseBoostTarget(stacks);
         stacks = stacks.map((stack) =>
@@ -170,7 +179,12 @@ export function resolveRound(input: ResolveInput): RoundResult {
       stacks = stacks.map((stack) =>
         stack.color === card.color ? { ...stack, cards: [...stack.cards, card] } : stack,
       );
-      const target = stacks.find((stack) => stack.color === card.color)!;
+      let target = stacks.find((stack) => stack.color === card.color)!;
+      const unlocks = !target.fullStack && target.cards.length === FULL_STACK_COUNT;
+      if (unlocks) {
+        stacks = stacks.map((stack) => (stack.color === card.color ? { ...stack, fullStack: true } : stack));
+        target = stacks.find((stack) => stack.color === card.color)!;
+      }
       events.push({
         type: "stack_add",
         cardId: card.id,
@@ -178,6 +192,17 @@ export function resolveRound(input: ResolveInput): RoundResult {
         stackTotalMicros: stackTotal(target),
         totalMicros: boardTotal(stacks),
       });
+      if (unlocks) {
+        events.push({
+          type: "full_stack",
+          cardId: card.id,
+          color: card.color,
+          count: FULL_STACK_COUNT,
+          factor: FULL_STACK_FACTOR,
+          stackTotalMicros: stackTotal(target),
+          totalMicros: boardTotal(stacks),
+        });
+      }
     }
 
     if (ended || pending === 0) break;
@@ -207,6 +232,8 @@ export function resolveRound(input: ResolveInput): RoundResult {
     cancelledPacks: cancelled,
     stacks,
     lostMicros,
+    greyCards,
+    fullStackPiles: ended ? 0 : stacks.filter((stack) => stack.fullStack).length,
     stakeDebits: 1,
   };
 }

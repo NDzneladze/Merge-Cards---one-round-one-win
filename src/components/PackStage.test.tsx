@@ -11,6 +11,7 @@ const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
 const extra: ScriptedDraw = { kind: "extra" };
 const purple: ScriptedDraw = { kind: "purple" };
 const red: ScriptedDraw = { kind: "red" };
+const grey: ScriptedDraw = { kind: "grey" };
 
 function timeline(script: ScriptedDraw[]) {
   const result = resolveRound({ seed: "vis", stake: 1, script });
@@ -83,12 +84,47 @@ describe("pack opening presentation", () => {
     expect(screen.getByTestId("booster-2")).toBeInTheDocument();
     expect(screen.queryByTestId("booster-3")).toBeNull();
     expect(screen.getByTestId("booster-count")).toHaveTextContent("−2");
+    expect(screen.queryByTestId("red-strike")).toBeNull();
+    expect(screen.getByTestId("pack")).toHaveClass("pack-dead");
+    expect(screen.getByTestId("pack").querySelector(".pack-art")).toHaveClass("is-sealed");
+    expect(screen.getByTestId("pack").querySelectorAll(".pack-mouth .card")).toHaveLength(0);
+    expect(screen.getByTestId("pack")).toHaveTextContent("busted");
+    expect(screen.queryByText("STOP")).toBeNull();
+    expect(screen.queryByTestId("win-overlay")).toBeNull();
+    expect(screen.queryByTestId("nowin-badge")).toBeNull();
+
+    const strikeAt = steps.findIndex((step) => step.kind === "bust_strike");
+    const strikeScene = reduceSteps(steps.slice(0, strikeAt + 1), initialScene(result.difficulty, result.colors));
+    const { unmount } = render(<PackStage scene={strikeScene} result={null} roundKey="bust-strike" settled={false} />);
     const strike = screen.getByTestId("red-strike");
-    expect(strike.querySelectorAll(".card-corner svg")).toHaveLength(0);
+    expect(strike.querySelectorAll(".card-corner")).toHaveLength(0);
     expect(strike.querySelectorAll("[data-mark='skull']")).toHaveLength(1);
     expect(strike).toHaveTextContent("STOP");
-    expect(strike).toHaveTextContent("0× bust");
-    expect(screen.queryByTestId("win-overlay")).toBeNull();
+    expect(strike).toHaveTextContent("0×");
+    expect(strike).not.toHaveTextContent("0× bust");
+    const stopWords = strike.textContent?.match(/STOP/g) ?? [];
+    expect(stopWords).toHaveLength(1);
+    unmount();
+  });
+
+  it("shows a grey reveal as a discard, and a full-stack seal without a second copy at 11", () => {
+    const greyScript: ScriptedDraw[] = [g(0.2), grey, g(0.1), g(0.1), g(0.1), g(0.1)];
+    const greySteps = buildTimeline(resolveRound({ seed: "vis", stake: 1, script: greyScript }).events);
+    const greyAt = greySteps.findIndex((step) => step.kind === "grey");
+    const { unmount } = mount(reduceSteps(greySteps.slice(0, greyAt + 1)));
+    expect(screen.queryByTestId("flyer")).toBeNull();
+    expect(screen.getByText("EMPTY")).toBeInTheDocument();
+    expect(document.querySelectorAll(".stack-card")).toHaveLength(1);
+    expect(screen.queryByText("Empty")).toBeNull();
+    unmount();
+
+    const stackScript: ScriptedDraw[] = [extra, g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.2)];
+    const stackSteps = buildTimeline(resolveRound({ seed: "vis-stack", stake: 1, script: stackScript }).events);
+    const sealAt = stackSteps.findIndex((step) => step.kind === "full_stack");
+    render(<PackStage scene={reduceSteps(stackSteps.slice(0, sealAt + 1))} result={null} roundKey="stack-1" settled={false} />);
+    expect(screen.getByTestId("fullstack-green")).toHaveTextContent(/full stack ×2/i);
+    expect(screen.queryByTestId("progress-green")).toBeNull();
+    expect(screen.getAllByTestId("fullstack-green")).toHaveLength(1);
   });
 
   it("locks the animation scale to the former 2× tempo", () => {

@@ -15,6 +15,10 @@ export const LEGACY_1X_MS: Record<Step["kind"], number> = {
   bust_strike: 640,
   wipe: 400,
   settle: 90,
+  /** Safe blank. Reveal, then discard. Half of this is the v0.7 tempo. */
+  grey: 220,
+  /** One-shot Full Stack seal. Half of this is the v0.7 tempo. */
+  full_stack: 360,
 };
 
 /** Former 2×. Gameplay, flight, and the celebration all use this scale. */
