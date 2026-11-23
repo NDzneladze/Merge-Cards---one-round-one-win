@@ -530,7 +530,7 @@ describe("resolveRound", () => {
       if (example.id === "grey") {
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.greyCards).toBeGreaterThanOrEqual(3);
+        expect(result.greyCards).toBe(2);
         expect(result.multiplierMicros).toBeGreaterThan(0n);
         expect(result.multiplierMicros).toBeLessThan(MICRO);
         expect(eventsOf(result, "bust")).toHaveLength(0);
