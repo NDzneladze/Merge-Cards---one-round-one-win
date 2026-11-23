@@ -1,4 +1,4 @@
-import type { Difficulty, ScriptedDraw } from "./engine/types";
+import type { Difficulty, ScriptedDraw, StackColor } from "./engine/types";
 
 /**
  * Deterministic boards for screenshots. They call the same resolver with a
@@ -8,6 +8,7 @@ import type { Difficulty, ScriptedDraw } from "./engine/types";
 const extra: ScriptedDraw = { kind: "extra" };
 const purple: ScriptedDraw = { kind: "purple" };
 const grey: ScriptedDraw = { kind: "grey" };
+const greyTo = (target: StackColor): ScriptedDraw => ({ kind: "grey", target });
 const red: ScriptedDraw = { kind: "red" };
 const g = (value = 0.13): ScriptedDraw => ({ kind: "green", value });
 const b = (value = 1.5): ScriptedDraw => ({ kind: "blue", value });
@@ -30,7 +31,7 @@ export function green27Script(): ScriptedDraw[] {
   return slots;
 }
 
-export type FixtureId = "green27" | "partial" | "waiting" | "bust" | "grey" | "fullstack" | "easy" | "hard";
+export type FixtureId = "green27" | "partial" | "waiting" | "bust" | "grey" | "fullstack" | "showcase" | "easy" | "hard";
 
 export type Fixture = {
   id: FixtureId;
@@ -75,6 +76,21 @@ export const FIXTURES: Record<FixtureId, Fixture> = {
     seed: "fixture-fullstack",
     difficulty: "medium",
     script: [extra, g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), purple, g(0.2), g(0.2), g(0.2), g(0.2), g(0.2)],
+  },
+  /**
+   * The v0.10 walk-through in three packs. Two +1 PACKs stack under the pack.
+   * Greys join the green pile. Eight greens make 3.20×, purple doubles it to
+   * 6.40×, and the 10th card (a grey) lands Stack Bonus ×2 for 12.80×.
+   */
+  showcase: {
+    id: "showcase",
+    seed: "fixture-showcase",
+    difficulty: "medium",
+    script: [
+      extra, g(0.5), g(0.4), greyTo("green"), g(0.3), extra,
+      g(0.5), b(1.6), g(0.4), g(0.3), b(1.2), g(0.4),
+      g(0.4), purple, greyTo("green"), b(1.4), g(0.2), g(0.1),
+    ],
   },
   easy: {
     id: "easy",

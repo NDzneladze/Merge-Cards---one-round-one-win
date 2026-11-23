@@ -1,4 +1,4 @@
-import { MICRO } from "../engine/config";
+import { FULL_STACK_COUNT, MICRO } from "../engine/config";
 import { formatMultiplier } from "../engine/money";
 import { STACK_COLORS, type Card, type Difficulty, type RoundEvent, type RoundResult, type StackColor, type WinTier } from "../engine/types";
 
@@ -9,14 +9,16 @@ import { STACK_COLORS, type Card, type Difficulty, type RoundEvent, type RoundRe
  * never add randomness or change the outcome; they are a deterministic
  * function of the engine's event log.
  */
-/** Where a card flies after it ejects: a pile, the arena centre (red), the booster stack, or the discard (grey). */
-export type FlightTarget = StackColor | "center" | "boosters" | "discard";
+/** Where a card flies after it ejects: a pile, the arena centre (red), or under the active pack (+1 PACK). */
+export type FlightTarget = StackColor | "center" | "boosters";
 
 export type Step =
   | { kind: "pack_enter"; packNo: number; cards: number; pending: number }
   | { kind: "pack_open"; packNo: number }
   | { kind: "eject"; card: Card }
   | { kind: "travel"; card: Card; target: FlightTarget }
+  /** The +1 PACK card swings round the active pack and slides under it. Longer than a pile flight on purpose. */
+  | { kind: "tuck"; card: Card }
   | { kind: "stack"; cardId: string; color: StackColor; stackTotalMicros: bigint; totalMicros: bigint }
   | { kind: "earn"; cardId: string; pending: number; totalPacks: number }
   | {
@@ -28,7 +30,7 @@ export type Step =
       stackTotalMicros: bigint;
       totalMicros: bigint;
     }
-  | { kind: "grey"; cardId: string }
+  | { kind: "grey"; cardId: string; color: StackColor; count: number; stackTotalMicros: bigint; totalMicros: bigint }
   | {
       kind: "full_stack";
       cardId: string;
@@ -54,14 +56,25 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
         steps.push({ kind: "eject", card: event.card });
         if (event.card.kind === "value") steps.push({ kind: "travel", card: event.card, target: event.card.color });
         else if (event.card.kind === "red") steps.push({ kind: "travel", card: event.card, target: "center" });
-        else if (event.card.kind === "extra") steps.push({ kind: "travel", card: event.card, target: "boosters" });
-        else if (event.card.kind === "grey") steps.push({ kind: "travel", card: event.card, target: "discard" });
-        // Purple travels once the engine has named its target (see `boost`).
+        else if (event.card.kind === "extra") steps.push({ kind: "tuck", card: event.card });
+        // Purple and grey travel once the engine has named their pile (see `boost` and `grey`).
         break;
       }
-      case "grey":
-        steps.push({ kind: "grey", cardId: event.cardId });
+      case "grey": {
+        const eject = steps[steps.length - 1];
+        if (eject?.kind === "eject" && eject.card.kind === "grey" && eject.card.id === event.cardId) {
+          steps.push({ kind: "travel", card: eject.card, target: event.color });
+        }
+        steps.push({
+          kind: "grey",
+          cardId: event.cardId,
+          color: event.color,
+          count: event.count,
+          stackTotalMicros: event.stackTotalMicros,
+          totalMicros: event.totalMicros,
+        });
         break;
+      }
       case "full_stack":
         steps.push({
           kind: "full_stack",
@@ -121,6 +134,8 @@ export type StackCardState = "idle" | "landing" | "dying";
 
 export type StackCard = {
   id: string;
+  /** A grey sits in the pile at 0× and counts toward Stack Bonus. */
+  kind: "value" | "grey";
   valueMicros: bigint;
   state: StackCardState;
 };
@@ -132,10 +147,14 @@ export type StackView = {
   totalMicros: bigint;
   /** Changes whenever a purple lands so the UI can replay the boost flash. */
   boostKey: string | null;
-  /** True once this pile's 10th value card has unlocked the one-shot ×2. */
+  /** True once this pile's 10th card (value or grey) has unlocked the one-shot Stack Bonus ×2. */
   fullStack: boolean;
-  /** Changes when the seal lands so the ribbon can replay. */
+  /** Changes when the bonus lands so the ribbon can replay. */
   fullStackKey: string | null;
+  /** Pile total just before the bonus doubled it. The UI counts up from here. */
+  preBonusMicros: bigint | null;
+  /** True only for the step on which the Stack Bonus landed. Drives the ribbon and the count-up. */
+  bonusHot: boolean;
   /** True for the step on which a card landed or a boost hit. */
   hot: boolean;
 };
@@ -191,7 +210,18 @@ export type Scene = {
 function emptyStacks(colors: readonly StackColor[]): Record<StackColor, StackView> {
   const out = {} as Record<StackColor, StackView>;
   for (const color of colors) {
-    out[color] = { color, cards: [], factor: 1, totalMicros: 0n, boostKey: null, fullStack: false, fullStackKey: null, hot: false };
+    out[color] = {
+      color,
+      cards: [],
+      factor: 1,
+      totalMicros: 0n,
+      boostKey: null,
+      fullStack: false,
+      fullStackKey: null,
+      preBonusMicros: null,
+      bonusHot: false,
+      hot: false,
+    };
   }
   return out;
 }
@@ -234,6 +264,11 @@ export function describeCard(card: Card): string {
   return "Red";
 }
 
+/** " · 8/10" while a pile is still building toward its Stack Bonus. */
+function progressNote(unlocked: boolean, count: number): string {
+  return unlocked || count >= FULL_STACK_COUNT ? "" : ` · ${count}/${FULL_STACK_COUNT}`;
+}
+
 function settleTransients(stacks: Record<StackColor, StackView>): Record<StackColor, StackView> {
   const next = { ...stacks };
   for (const stack of Object.values(stacks)) {
@@ -241,6 +276,7 @@ function settleTransients(stacks: Record<StackColor, StackView>): Record<StackCo
     next[color] = {
       ...stack,
       hot: false,
+      bonusHot: false,
       cards: stack.cards.map((card) => (card.state === "landing" ? { ...card, state: "idle" } : card)),
     };
   }
@@ -284,13 +320,13 @@ export function applyStep(previous: Scene, step: Step): Scene {
           ? `${describeCard(card)} → ${card.color} stack`
           : card.kind === "purple"
             ? `Purple ×${card.factor} → ${step.target} stack`
-            : card.kind === "extra"
-              ? "+1 PACK → booster stack"
-              : card.kind === "grey"
-                ? "Empty 0× → discard"
-                : "RED";
+            : card.kind === "grey"
+              ? `Empty 0× → ${step.target} stack`
+              : "RED";
       return { ...state, flyer: { card, phase: "travel", target: step.target }, caption };
     }
+    case "tuck":
+      return { ...state, flyer: { card: step.card, phase: "travel", target: "boosters" }, caption: "+1 PACK → under the pack" };
     case "earn":
       return {
         ...state,
@@ -299,7 +335,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
         packsTotal: step.totalPacks,
         earnKey: step.cardId,
         burst: { id: step.cardId, text: "+1 PACK", tone: "extra" },
-        caption: step.pending === 1 ? "+1 PACK · a bonus pack slides in below" : `+1 PACK · ${step.pending} bonus packs waiting below`,
+        caption: step.pending === 1 ? "+1 PACK · a bonus pack tucks in under the pack" : `+1 PACK · ${step.pending} bonus packs stacked under the pack`,
       };
     case "stack": {
       const flyer = state.flyer;
@@ -314,12 +350,12 @@ export function applyStep(previous: Scene, step: Step): Scene {
             ...stack,
             hot: true,
             totalMicros: step.stackTotalMicros,
-            cards: [...stack.cards, { id: step.cardId, valueMicros, state: "landing" }],
+            cards: [...stack.cards, { id: step.cardId, kind: "value", valueMicros, state: "landing" }],
           },
         },
         totalMicros: step.totalMicros,
         burst: { id: step.cardId, text: `+${formatMultiplier(valueMicros)}`, tone: "value", color: step.color },
-        caption: `${labelColor(step.color)} stack ${formatMultiplier(step.stackTotalMicros)}`,
+        caption: `${labelColor(step.color)} stack ${formatMultiplier(step.stackTotalMicros)}${progressNote(stack.fullStack, stack.cards.length + 1)}`,
       };
     }
     case "boost": {
@@ -345,13 +381,25 @@ export function applyStep(previous: Scene, step: Step): Scene {
             : `${labelColor(step.color)} stack ×${step.stackFactor} → ${formatMultiplier(step.stackTotalMicros)}`,
       };
     }
-    case "grey":
+    case "grey": {
+      const stack = state.stacks[step.color];
       return {
         ...state,
         flyer: null,
-        burst: { id: step.cardId, text: "EMPTY", tone: "grey" },
-        caption: "Empty · 0× · discarded",
+        stacks: {
+          ...state.stacks,
+          [step.color]: {
+            ...stack,
+            hot: true,
+            totalMicros: step.stackTotalMicros,
+            cards: [...stack.cards, { id: step.cardId, kind: "grey", valueMicros: 0n, state: "landing" }],
+          },
+        },
+        totalMicros: step.totalMicros,
+        burst: { id: step.cardId, text: "0×", tone: "grey", color: step.color },
+        caption: `Empty 0× joins the ${step.color} stack${progressNote(stack.fullStack, step.count)}`,
       };
+    }
     case "full_stack": {
       const stack = state.stacks[step.color];
       return {
@@ -363,12 +411,14 @@ export function applyStep(previous: Scene, step: Step): Scene {
             hot: true,
             fullStack: true,
             fullStackKey: step.cardId,
+            preBonusMicros: stack.totalMicros,
+            bonusHot: true,
             totalMicros: step.stackTotalMicros,
           },
         },
         totalMicros: step.totalMicros,
-        burst: { id: `${step.cardId}-stack`, text: "FULL STACK ×2", tone: "stack", color: step.color },
-        caption: `${labelColor(step.color)} full stack ×${step.factor} → ${formatMultiplier(step.stackTotalMicros)}`,
+        burst: { id: `${step.cardId}-stack`, text: `STACK BONUS ×${step.factor}`, tone: "stack", color: step.color },
+        caption: `${labelColor(step.color)} stack bonus ×${step.factor} · ${formatMultiplier(stack.totalMicros)} → ${formatMultiplier(step.stackTotalMicros)}`,
       };
     }
     case "bust_strike":
