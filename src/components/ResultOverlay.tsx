@@ -1,51 +1,56 @@
-import type { RoundResult } from "../engine/types";
+import { useEffect, useState } from "react";
+import type { RoundResult, WinTier } from "../engine/types";
 import { formatMicros, formatMultiplier } from "../engine/money";
-import { SkullMark } from "./CardFace";
+import type { PlaybackSpeed } from "../playback/timing";
+import { speedFactor } from "../playback/timing";
 
 type Props = {
   result: RoundResult;
-  onAgain: () => void;
-  onPinSeed: (seed: string) => void;
-  canPlay: boolean;
+  roundKey: string;
+  speed: PlaybackSpeed;
 };
 
-/** Takes the hero spot once the round has settled. The lanes stay visible below it. */
-export function ResultOverlay({ result, onAgain, onPinSeed, canPlay }: Props) {
-  const skull = result.outcome === "loss";
-  const noWin = !skull && result.multiplierMicros === 0n;
-  const title = skull ? "SKULL" : noWin ? "NO WIN" : "FINAL WIN";
-  const tone = skull ? "skull" : noWin ? "empty" : "win";
+const TIER_LABEL: Record<Exclude<WinTier, "none" | "win">, string> = {
+  big: "BIG WIN",
+  huge: "HUGE WIN",
+  mega: "MEGA WIN",
+};
+
+const HOLD_MS = 4_200;
+
+/**
+ * Celebration for high-tier results only. Ordinary wins and busts never open
+ * it; they are read from the HUD. No replay button: the round is relaunched
+ * from the host flow.
+ */
+export function ResultOverlay({ result, roundKey, speed }: Props) {
+  const tier = result.tier;
+  const celebrate = tier === "big" || tier === "huge" || tier === "mega";
+  const [dismissedKey, setDismissedKey] = useState<string | null>(null);
+  const open = celebrate && dismissedKey !== roundKey;
+
+  useEffect(() => {
+    if (!open) return;
+    const hold = Math.max(1_600, HOLD_MS * Math.max(speedFactor(speed), 0.5));
+    const timer = window.setTimeout(() => setDismissedKey(roundKey), hold);
+    return () => window.clearTimeout(timer);
+  }, [open, roundKey, speed]);
+
+  if (!open || !celebrate) return null;
 
   return (
-    <div className={`result tone-${tone}`} role="status" aria-labelledby="result-title" data-testid="result-overlay">
-      {skull ? <SkullMark className="result-skull" /> : null}
-      <p className="result-kicker">{skull ? "Round ended instantly" : "One settlement"}</p>
-      <h2 id="result-title" data-testid="result-title">
-        {title} {formatMultiplier(result.multiplierMicros)}
-      </h2>
-      <p className="payout" data-testid="result-payout">
-        Payout {formatMicros(result.payoutMicros)} credits
-      </p>
-      <p className="result-copy">
-        {skull
-          ? result.potentialLostMicros > 0n
-            ? `Wiped ${formatMultiplier(result.potentialLostMicros)} of potential and every pending pack.`
-            : "Nothing on the board is paid. Pending packs are cancelled."
-          : noWin
-            ? "The packs finished safely, and the surviving cards pay 0×. This is not a Skull."
-            : `${result.openedPacks} pack${result.openedPacks === 1 ? "" : "s"} resolved into one payout.`}
-      </p>
-      <div className="result-actions">
-        <button type="button" className="play" data-testid="play-again" disabled={!canPlay} onClick={onAgain}>
-          Play again
-        </button>
-        <button type="button" className="ghost" onClick={() => onPinSeed(result.seed)} title={`Seed ${result.seed}`}>
-          Pin seed
-        </button>
-      </div>
-      <p className="seed-read">
-        Seed <code data-testid="round-seed">{result.seed}</code>
-      </p>
-    </div>
+    <button
+      type="button"
+      className={`win-overlay tier-${tier}`}
+      data-testid="win-overlay"
+      aria-label={`${TIER_LABEL[tier]} ${formatMultiplier(result.multiplierMicros)}`}
+      onClick={() => setDismissedKey(roundKey)}
+    >
+      <span className="win-rays" aria-hidden="true" />
+      <span className="win-tier">{TIER_LABEL[tier]}</span>
+      <strong className="win-mult">{formatMultiplier(result.multiplierMicros)}</strong>
+      <span className="win-payout">+{formatMicros(result.payoutMicros)} credits</span>
+      <span className="win-hint">tap to continue</span>
+    </button>
   );
 }

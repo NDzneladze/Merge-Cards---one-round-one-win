@@ -1,6 +1,8 @@
 import { useEffect } from "react";
-import { DEMO_WEIGHTS, LEVEL_MICROS } from "../engine/config";
+import { DEMO_WEIGHTS, PURPLE_FACTOR, VALUE_RANGES, WIN_TIERS } from "../engine/config";
 import { formatMultiplier } from "../engine/money";
+import { STACK_COLORS } from "../engine/types";
+import { labelColor } from "../playback/scene";
 
 type Props = {
   onClose: () => void;
@@ -32,35 +34,49 @@ export function InfoModal({ onClose }: Props) {
         </header>
         <ul>
           <li>One stake buys one round and opens one pack of six cards.</li>
-          <li>Matching color and level merge into the next level. The board keeps every surviving card for later packs.</li>
+          <li>Each card flies out of the pack into the stack of its colour. A stack is worth the sum of its cards.</li>
           <li>
-            <strong>+1 PACK</strong> queues another six-card pack in the same bet. It can chain. There is no −1 pack.
+            <strong>PURPLE</strong> lands on the stack with the most cards and multiplies it by ×{PURPLE_FACTOR}. Ties go
+            to the highest total, then to the leftmost stack. Boosts stack with each other.
           </li>
           <li>
-            <strong>SKULL</strong> stops the round immediately at 0× and cancels pending packs, even if a +1 already appeared.
+            <strong>RED</strong> ends the round instantly at 0×. Every stack and every remaining card is cancelled.
           </li>
-          <li>Grey cards pay 0× and do not merge. There is no cashout and no second bet mid-round.</li>
-          <li>The number during the chain is potential. It becomes a win only after a safe finish.</li>
+          <li>The total shown during the round is potential. It pays once, after the last card, if no red appeared.</li>
         </ul>
-        <h3>Demo paytable</h3>
-        <p className="disclaimer">Placeholder values. Not a validated RTP. Not real money.</p>
+        <h3>Card types</h3>
+        <p className="disclaimer">Placeholder values and weights. Not a validated RTP. Not real money.</p>
         <table>
           <tbody>
-            {Object.entries(LEVEL_MICROS).map(([level, micros]) => (
-              <tr key={level}>
-                <th>Level {level}</th>
-                <td>{formatMultiplier(micros)}</td>
+            {STACK_COLORS.map((color) => (
+              <tr key={color}>
+                <th>{labelColor(color)}</th>
+                <td>
+                  {formatMultiplier(VALUE_RANGES[color].minMicros)} – {formatMultiplier(VALUE_RANGES[color].maxMicros)}
+                </td>
+                <td>{DEMO_WEIGHTS[color]}%</td>
               </tr>
             ))}
+            <tr>
+              <th>Purple</th>
+              <td>×{PURPLE_FACTOR} on the biggest stack</td>
+              <td>{DEMO_WEIGHTS.purple}%</td>
+            </tr>
+            <tr>
+              <th>Red</th>
+              <td>Round over · 0×</td>
+              <td>{DEMO_WEIGHTS.red}%</td>
+            </tr>
           </tbody>
         </table>
+        <h3>Win tiers</h3>
         <p>
-          Level 6 is the ceiling and does not merge. With the six-pack demo cap, a natural chain of level-1 cards tops out at level 5.
-        </p>
-        <h3>Placeholder draw weights</h3>
-        <p>
-          Each color {DEMO_WEIGHTS.red}%, grey {DEMO_WEIGHTS.grey}%, +1 pack {DEMO_WEIGHTS.extra_pack}%, Skull {DEMO_WEIGHTS.skull}%.
-          At the six-pack cap, +1 is removed and the other weights are used unchanged (denominator 89).
+          Ordinary wins are shown in the HUD only.{" "}
+          {[...WIN_TIERS]
+            .reverse()
+            .map((rule) => `${rule.tier.toUpperCase()} from ${formatMultiplier(rule.minMicros)}`)
+            .join(", ")}{" "}
+          open a celebration.
         </p>
       </div>
     </div>

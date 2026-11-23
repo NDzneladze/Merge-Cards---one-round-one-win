@@ -1,15 +1,17 @@
-import { LEVEL_MICROS, MICRO } from "./config";
+import { MICRO } from "./config";
+import type { StackState } from "./types";
 
-export function levelMicros(level: number): bigint {
-  const value = LEVEL_MICROS[level];
-  if (value === undefined) {
-    throw new Error(`Invalid card level ${level}`);
-  }
-  return value;
+export function stackSum(stack: Pick<StackState, "cards">): bigint {
+  return stack.cards.reduce<bigint>((sum, card) => sum + card.valueMicros, 0n);
 }
 
-export function sumLevels(levels: readonly number[]): bigint {
-  return levels.reduce<bigint>((sum, level) => sum + levelMicros(level), 0n);
+/** Sum of the stack's cards times every purple boost that landed on it. */
+export function stackTotal(stack: StackState): bigint {
+  return stackSum(stack) * BigInt(stack.factor);
+}
+
+export function boardTotal(stacks: readonly StackState[]): bigint {
+  return stacks.reduce<bigint>((sum, stack) => sum + stackTotal(stack), 0n);
 }
 
 export function payoutMicros(stakeCredits: number, multiplierMicros: bigint): bigint {
@@ -42,4 +44,12 @@ export function creditsToMicros(credits: number): bigint {
     throw new Error("Demo credits must be whole numbers");
   }
   return BigInt(credits) * MICRO;
+}
+
+/** Plain multiplier number (e.g. 0.31) to micros, rounded to the nearest cent. */
+export function valueToMicros(value: number): bigint {
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error("Card value must be a non-negative number");
+  }
+  return BigInt(Math.round(value * 100)) * 10_000n;
 }

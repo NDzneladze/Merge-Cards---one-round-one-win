@@ -6,16 +6,14 @@ export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = ["1x", "2x", "instant"]
 
 /** Milliseconds at 1×. Speed only scales these delays; it never changes the transcript. */
 const BASE_MS: Record<Step["kind"], number> = {
-  pack_enter: 520,
+  pack_enter: 480,
   pack_open: 420,
   eject: 300,
-  travel: 360,
-  land: 200,
-  merge_collapse: 240,
-  merge_pop: 360,
-  pack_earned: 620,
-  skull_strike: 820,
-  wipe: 620,
+  travel: 340,
+  stack: 220,
+  boost: 560,
+  bust_strike: 900,
+  wipe: 600,
   settle: 160,
 };
 

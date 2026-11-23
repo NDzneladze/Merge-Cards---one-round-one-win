@@ -10,19 +10,24 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
-async function pinSeed(user: ReturnType<typeof userEvent.setup>, seed: string) {
+async function openExamples(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByText("Examples & seed"));
+}
+
+async function pinSeed(user: ReturnType<typeof userEvent.setup>, seed: string) {
+  await openExamples(user);
   const input = screen.getByTestId("seed-input");
   await user.clear(input);
   await user.type(input, seed);
 }
 
 describe("App", () => {
-  it("plays a pinned seed, shows the engine result, and debits the stake once per round", async () => {
+  it("plays a pinned seed, shows the engine result in the HUD, and debits the stake once per round", async () => {
     const user = userEvent.setup();
-    const seed = "ui-round";
+    const seed = "demo-19";
     const stake = 10;
     const engine = resolveRound({ seed, stake });
+    expect(engine.tier).toBe("win");
     render(<App />);
 
     expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(creditsToMicros(STARTING_BALANCE_CREDITS)));
@@ -30,63 +35,62 @@ describe("App", () => {
     await pinSeed(user, seed);
     await user.click(screen.getByTestId("play-button"));
 
-    const title = skullTitle(engine);
-    expect(await screen.findByTestId("result-title")).toHaveTextContent(title);
-    expect(screen.getByTestId("result-payout")).toHaveTextContent(
-      `Payout ${formatMicros(engine.payoutMicros)} credits`,
-    );
-    expect(screen.getByTestId("round-seed")).toHaveTextContent(seed);
+    await waitFor(() => expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
+    expect(screen.getByTestId("payout-meter")).toHaveTextContent(`+${formatMicros(engine.payoutMicros)}`);
+    expect(screen.queryByTestId("win-overlay")).toBeNull();
+    expect(screen.queryByText(/play again/i)).toBeNull();
+    expect(screen.getByTestId("chip-green")).toHaveTextContent("×2");
 
     const afterOne = creditsToMicros(STARTING_BALANCE_CREDITS) - creditsToMicros(stake) + engine.payoutMicros;
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(afterOne)));
 
-    await user.click(screen.getByTestId("play-again"));
-    expect(await screen.findByTestId("result-title")).toHaveTextContent(title);
+    await user.click(screen.getByTestId("play-button"));
     const afterTwo = afterOne - creditsToMicros(stake) + engine.payoutMicros;
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(afterTwo)));
   });
 
-  it("plays the featured Skull seed to an instant 0× wipe with dead lanes", async () => {
+  it("plays the featured Red seed to an instant 0× with a struck board", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByTestId("speed-instant"));
-    await user.click(screen.getByText("Examples & seed"));
-    await user.click(screen.getByRole("button", { name: "Skull" }));
+    await openExamples(user);
+    await user.click(screen.getByRole("button", { name: "Red" }));
     await user.click(screen.getByTestId("play-button"));
-    expect(await screen.findByTestId("result-title")).toHaveTextContent("SKULL 0.00×");
-    expect(screen.getByTestId("result-payout")).toHaveTextContent("Payout 0.00 credits");
-    expect(screen.getByTestId("stage")).toHaveClass("status-skull", "skull-dead");
-    expect(screen.getByTestId("pending-meter")).toHaveTextContent("0");
-    expect(screen.getByTestId("potential")).toHaveTextContent("0.00×");
-    const dying = document.querySelectorAll(".pile-card.is-dying");
-    expect(dying.length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByTestId("stage")).toHaveClass("status-bust", "bust-dead"));
+    expect(screen.getByTestId("total-meter")).toHaveTextContent("0.00×");
+    expect(screen.getByTestId("payout-meter")).toHaveTextContent("0.00");
+    expect(screen.getByTestId("red-strike")).toBeInTheDocument();
+    expect(document.querySelectorAll(".stack-card.is-dying").length).toBeGreaterThan(0);
+    expect(screen.queryByTestId("win-overlay")).toBeNull();
     const balance = creditsToMicros(STARTING_BALANCE_CREDITS) - creditsToMicros(10);
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(balance)));
   });
 
-  it("builds the chain example into stacked lanes with six packs and no pending packs", async () => {
+  it("opens the celebration only for a high-tier win and lets it be dismissed", async () => {
     const user = userEvent.setup();
+    const engine = resolveRound({ seed: "demo-335", stake: 10 });
+    expect(engine.tier).toBe("mega");
     render(<App />);
     await user.click(screen.getByTestId("speed-instant"));
-    await user.click(screen.getByText("Examples & seed"));
-    await user.click(screen.getByRole("button", { name: "Chain" }));
+    await openExamples(user);
+    await user.click(screen.getByRole("button", { name: "Mega" }));
     await user.click(screen.getByTestId("play-button"));
-    expect(await screen.findByTestId("result-title")).toHaveTextContent("FINAL WIN 3.85×");
-    expect(screen.getByTestId("pack-meter")).toHaveTextContent("6");
-    expect(screen.getByTestId("pending-meter")).toHaveTextContent("0");
-    expect(screen.getByTestId("stage")).toHaveClass("status-won");
-    const piles = document.querySelectorAll(".pile-card");
-    expect(piles.length).toBeGreaterThan(0);
-    expect(document.querySelectorAll(".pile-card.is-dying")).toHaveLength(0);
-    expect(document.querySelector(".flyer")).toBeNull();
+    const overlay = await screen.findByTestId("win-overlay");
+    expect(overlay).toHaveTextContent("MEGA WIN");
+    expect(overlay).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
+    expect(overlay).not.toHaveTextContent(/play again/i);
+    expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
+    await user.click(overlay);
+    expect(screen.queryByTestId("win-overlay")).toBeNull();
+    expect(document.querySelectorAll(".stack-card").length).toBeGreaterThan(0);
   });
 
-  it("explains Extra Pack and Skull in the rules, and keeps the shell on a narrow layout", async () => {
+  it("explains Purple and Red in the rules, and keeps the shell on a narrow layout", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("button", { name: "Rules" }));
-    expect(screen.getByRole("dialog")).toHaveTextContent(/\+1 PACK/);
-    expect(screen.getByRole("dialog")).toHaveTextContent(/SKULL/);
+    expect(screen.getByRole("dialog")).toHaveTextContent(/PURPLE/);
+    expect(screen.getByRole("dialog")).toHaveTextContent(/RED/);
     expect(screen.getByRole("dialog")).toHaveTextContent(/Not a validated RTP/);
     await user.click(screen.getByRole("button", { name: "Close" }));
 
@@ -95,9 +99,3 @@ describe("App", () => {
     expect(document.body).toHaveStyle({ overflowX: "hidden" });
   });
 });
-
-function skullTitle(engine: ReturnType<typeof resolveRound>): string {
-  if (engine.outcome === "loss") return `SKULL ${formatMultiplier(0n)}`;
-  if (engine.multiplierMicros === 0n) return `NO WIN ${formatMultiplier(0n)}`;
-  return `FINAL WIN ${formatMultiplier(engine.multiplierMicros)}`;
-}

@@ -44,14 +44,15 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
       return "pack";
     case "eject":
       return "flip";
-    case "merge_pop":
-      return "merge";
-    case "pack_earned":
-      return "extra";
-    case "skull_strike":
-      return "skull";
+    case "stack":
+      return "land";
+    case "boost":
+      return "boost";
+    case "bust_strike":
+      return "bust";
     case "settle":
-      return step.outcome === "loss" ? "lose" : step.multiplierMicros > 0n ? "win" : "lose";
+      if (step.outcome === "bust" || step.multiplierMicros === 0n) return "lose";
+      return step.tier === "win" ? "win" : "bigwin";
     default:
       return null;
   }
@@ -98,7 +99,9 @@ export function App() {
     sounded.current = token;
     if (speed === "instant") {
       if (applied !== total) return;
-      playCue(round.result.outcome === "loss" ? "skull" : round.result.multiplierMicros > 0n ? "win" : "lose", muted);
+      const last = round.steps[total - 1];
+      const cue = last ? cueFor(last) : null;
+      if (cue) playCue(cue, muted);
       return;
     }
     const step = round.steps[applied - 1];
@@ -160,7 +163,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.3 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">
@@ -177,15 +180,7 @@ export function App() {
       </header>
 
       <main>
-        <PackStage
-          scene={scene}
-          speed={speed}
-          result={round?.result ?? null}
-          settled={done}
-          canPlay={canPlay}
-          onAgain={play}
-          onPinSeed={(value) => setSeed(value)}
-        />
+        <PackStage scene={scene} speed={speed} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
       </main>
 
       <BetPanel
