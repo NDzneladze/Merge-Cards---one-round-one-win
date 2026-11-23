@@ -4,17 +4,22 @@ export type PlaybackSpeed = "1x" | "2x" | "instant";
 
 export const PLAYBACK_SPEEDS: readonly PlaybackSpeed[] = ["1x", "2x", "instant"];
 
-/** Milliseconds at 1×. Speed only scales these delays; it never changes the transcript. */
+/**
+ * Milliseconds at 1×. Speed only scales these delays; it never changes the
+ * transcript. A safe one-pack round runs in roughly 4.5 s; each bonus pack
+ * adds about 4 s of card travel plus a short pack transition.
+ */
 const BASE_MS: Record<Step["kind"], number> = {
-  pack_enter: 480,
-  pack_open: 420,
-  eject: 300,
-  travel: 340,
-  stack: 220,
-  boost: 560,
-  bust_strike: 900,
-  wipe: 600,
-  settle: 160,
+  pack_enter: 340,
+  pack_open: 300,
+  eject: 230,
+  travel: 260,
+  stack: 150,
+  earn: 420,
+  boost: 420,
+  bust_strike: 760,
+  wipe: 480,
+  settle: 140,
 };
 
 export function speedFactor(speed: PlaybackSpeed): number {

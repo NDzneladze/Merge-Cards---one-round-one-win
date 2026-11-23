@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { DEMO_WEIGHTS, PURPLE_FACTOR, VALUE_RANGES, WIN_TIERS } from "../engine/config";
+import { DEMO_WEIGHTS, MAX_PACKS, PURPLE_FACTOR, VALUE_RANGES, WIN_TIERS } from "../engine/config";
 import { formatMultiplier } from "../engine/money";
 import { STACK_COLORS } from "../engine/types";
 import { labelColor } from "../playback/scene";
@@ -40,9 +40,15 @@ export function InfoModal({ onClose }: Props) {
             to the highest total, then to the leftmost stack. Boosts stack with each other.
           </li>
           <li>
-            <strong>RED</strong> ends the round instantly at 0×. Every stack and every remaining card is cancelled.
+            <strong>+1 PACK</strong> queues one more pack of six cards at no extra cost. Its cards join the same stacks,
+            boosts included, and can earn further packs, up to {MAX_PACKS} packs in a round. It never appears once that
+            cap is reached.
           </li>
-          <li>The total shown during the round is potential. It pays once, after the last card, if no red appeared.</li>
+          <li>
+            <strong>RED</strong> ends the whole round instantly at 0×. Every stack, every remaining card and every
+            queued pack is cancelled.
+          </li>
+          <li>The total shown during the round is potential. It pays once, after the last pack, if no red appeared.</li>
         </ul>
         <h3>Card types</h3>
         <p className="disclaimer">Placeholder values and weights. Not a validated RTP. Not real money.</p>
@@ -61,6 +67,11 @@ export function InfoModal({ onClose }: Props) {
               <th>Purple</th>
               <td>×{PURPLE_FACTOR} on the biggest stack</td>
               <td>{DEMO_WEIGHTS.purple}%</td>
+            </tr>
+            <tr>
+              <th>+1 Pack</th>
+              <td>Queues one more pack</td>
+              <td>{DEMO_WEIGHTS.extra}%</td>
             </tr>
             <tr>
               <th>Red</th>

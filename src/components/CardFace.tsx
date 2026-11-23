@@ -74,6 +74,24 @@ function CardBody({ card }: { card: Card }) {
       </>
     );
   }
+  if (card.kind === "extra") {
+    return (
+      <>
+        <header className="card-head">
+          <span className="card-index">Extra</span>
+          <Ticket className="card-pip" />
+        </header>
+        <div className="card-center">
+          <Ticket className="card-emblem" />
+          <strong className="card-value">+1</strong>
+          <span className="card-sub">Pack</span>
+        </div>
+        <footer className="card-foot">
+          <span>Next pack</span>
+        </footer>
+      </>
+    );
+  }
   return (
     <>
       <header className="card-head">
@@ -103,6 +121,18 @@ export function Star({ className = "" }: { className?: string }) {
   return (
     <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path fill="currentColor" d="M12 1.5c.6 3.9 3.6 6.9 7.5 7.5v6c-3.9.6-6.9 3.6-7.5 7.5-.6-3.9-3.6-6.9-7.5-7.5v-6c3.9-.6 6.9-3.6 7.5-7.5Z" />
+    </svg>
+  );
+}
+
+/** Pack ticket: a sealed pack silhouette with a torn-off stub. */
+export function Ticket({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v3.2a2.3 2.3 0 0 0 0 4.6V16a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 16v-3.2a2.3 2.3 0 0 0 0-4.6V5A1.5 1.5 0 0 1 5 3.5Zm3 2.5v9h1.6v-9H8Zm3.2 0v9h1.6v-9h-1.6Zm3.2 0v9H16v-9h-1.6ZM6 19h12v1.5H6V19Z"
+      />
     </svg>
   );
 }

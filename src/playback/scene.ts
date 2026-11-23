@@ -8,12 +8,15 @@ import { STACK_COLORS, type Card, type RoundEvent, type StackColor, type WinTier
  * never add randomness or change the outcome; they are a deterministic
  * function of the engine's event log.
  */
+export type FlightTarget = StackColor | "center" | "queue";
+
 export type Step =
-  | { kind: "pack_enter"; packNo: number; cards: number }
+  | { kind: "pack_enter"; packNo: number; cards: number; pending: number }
   | { kind: "pack_open"; packNo: number }
   | { kind: "eject"; card: Card }
-  | { kind: "travel"; card: Card; target: StackColor | "center" }
+  | { kind: "travel"; card: Card; target: FlightTarget }
   | { kind: "stack"; cardId: string; color: StackColor; stackTotalMicros: bigint; totalMicros: bigint }
+  | { kind: "earn"; cardId: string; pending: number; totalPacks: number }
   | {
       kind: "boost";
       cardId: string;
@@ -23,7 +26,7 @@ export type Step =
       stackTotalMicros: bigint;
       totalMicros: bigint;
     }
-  | { kind: "bust_strike"; cardId: string; lostMicros: bigint }
+  | { kind: "bust_strike"; cardId: string; lostMicros: bigint; cancelledPacks: number }
   | { kind: "wipe" }
   | { kind: "settle"; multiplierMicros: bigint; outcome: "bust" | "resolved"; tier: WinTier };
 
@@ -32,16 +35,20 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
   for (const event of events) {
     switch (event.type) {
       case "pack_open":
-        steps.push({ kind: "pack_enter", packNo: event.packNo, cards: event.cards });
+        steps.push({ kind: "pack_enter", packNo: event.packNo, cards: event.cards, pending: event.pending });
         steps.push({ kind: "pack_open", packNo: event.packNo });
         break;
       case "card_reveal": {
         steps.push({ kind: "eject", card: event.card });
         if (event.card.kind === "value") steps.push({ kind: "travel", card: event.card, target: event.card.color });
         else if (event.card.kind === "red") steps.push({ kind: "travel", card: event.card, target: "center" });
+        else if (event.card.kind === "extra") steps.push({ kind: "travel", card: event.card, target: "queue" });
         // Purple travels once the engine has named its target (see `boost`).
         break;
       }
+      case "pack_earned":
+        steps.push({ kind: "earn", cardId: event.cardId, pending: event.pending, totalPacks: event.totalPacks });
+        break;
       case "stack_add":
         steps.push({
           kind: "stack",
@@ -68,7 +75,7 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
         break;
       }
       case "bust":
-        steps.push({ kind: "bust_strike", cardId: event.cardId, lostMicros: event.lostMicros });
+        steps.push({ kind: "bust_strike", cardId: event.cardId, lostMicros: event.lostMicros, cancelledPacks: event.cancelledPacks });
         steps.push({ kind: "wipe" });
         break;
       case "round_end":
@@ -105,7 +112,7 @@ export type StackView = {
 export type Flyer = {
   card: Card;
   phase: "eject" | "travel";
-  target: StackColor | "center" | null;
+  target: FlightTarget | null;
 };
 
 export type PackVisual = "none" | "arriving" | "open" | "spent" | "dead";
@@ -115,14 +122,21 @@ export type SceneStatus = "idle" | "playing" | "won" | "no_win" | "bust";
 export type Burst = {
   id: string;
   text: string;
-  tone: "value" | "boost" | "bust";
+  tone: "value" | "boost" | "bust" | "extra";
   color?: StackColor;
 };
 
 export type Scene = {
   status: SceneStatus;
   packNo: number;
+  /** Packs opened so far plus every pack still queued. */
   packsTotal: number;
+  /** Packs earned and waiting behind the current one. */
+  pendingPacks: number;
+  /** Changes whenever a +1 PACK lands so the queue can replay its increment. */
+  earnKey: string | null;
+  /** Queued packs a red card threw away. */
+  cancelledPacks: number;
   cardsInPack: number;
   cardsLeftInPack: number;
   pack: PackVisual;
@@ -152,6 +166,9 @@ export function initialScene(): Scene {
     status: "idle",
     packNo: 0,
     packsTotal: 1,
+    pendingPacks: 0,
+    earnKey: null,
+    cancelledPacks: 0,
     cardsInPack: 6,
     cardsLeftInPack: 6,
     pack: "none",
@@ -175,6 +192,7 @@ export function labelColor(color: string): string {
 export function describeCard(card: Card): string {
   if (card.kind === "value") return `${labelColor(card.color)} ${formatMultiplier(card.valueMicros)}`;
   if (card.kind === "purple") return `Purple ×${card.factor}`;
+  if (card.kind === "extra") return "+1 PACK";
   return "Red";
 }
 
@@ -204,14 +222,16 @@ export function applyStep(previous: Scene, step: Step): Scene {
         ...state,
         status: "playing",
         packNo: step.packNo,
+        packsTotal: step.packNo + step.pending,
+        pendingPacks: step.pending,
         cardsInPack: step.cards,
         cardsLeftInPack: step.cards,
         pack: "arriving",
         flyer: null,
-        caption: step.packNo === 1 ? "Pack arrives" : `Pack ${step.packNo} arrives`,
+        caption: step.packNo === 1 ? "Pack arrives" : `Bonus pack ${step.packNo} arrives`,
       };
     case "pack_open":
-      return { ...state, pack: "open", caption: "Pack opens" };
+      return { ...state, pack: "open", caption: step.packNo === 1 ? "Pack opens" : `Pack ${step.packNo} opens · same stacks` };
     case "eject":
       return {
         ...state,
@@ -226,9 +246,21 @@ export function applyStep(previous: Scene, step: Step): Scene {
           ? `${describeCard(card)} → ${card.color} stack`
           : card.kind === "purple"
             ? `Purple ×${card.factor} → ${step.target} stack`
-            : "RED";
+            : card.kind === "extra"
+              ? "+1 PACK → next packs"
+              : "RED";
       return { ...state, flyer: { card, phase: "travel", target: step.target }, caption };
     }
+    case "earn":
+      return {
+        ...state,
+        flyer: null,
+        pendingPacks: step.pending,
+        packsTotal: step.totalPacks,
+        earnKey: step.cardId,
+        burst: { id: step.cardId, text: "+1 PACK", tone: "extra" },
+        caption: step.pending === 1 ? "+1 PACK · one more pack queued" : `+1 PACK · ${step.pending} packs queued`,
+      };
     case "stack": {
       const flyer = state.flyer;
       const valueMicros = flyer?.card.kind === "value" && flyer.card.id === step.cardId ? flyer.card.valueMicros : 0n;
@@ -281,9 +313,14 @@ export function applyStep(previous: Scene, step: Step): Scene {
         redCard: state.flyer?.card ?? { kind: "red", id: step.cardId },
         flyer: null,
         lostMicros: step.lostMicros,
+        pendingPacks: 0,
+        cancelledPacks: step.cancelledPacks,
         bustPhase: "strike",
         burst: { id: step.cardId, text: "RED", tone: "bust" },
-        caption: "Red card · the round ends now",
+        caption:
+          step.cancelledPacks > 0
+            ? `Red card · round ends now · ${step.cancelledPacks} queued pack${step.cancelledPacks === 1 ? "" : "s"} cancelled`
+            : "Red card · the round ends now",
       };
     case "wipe": {
       const stacks = emptyStacks();

@@ -9,6 +9,7 @@ const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
 const au = (value: number): ScriptedDraw => ({ kind: "gold", value });
 const purple: ScriptedDraw = { kind: "purple" };
 const red: ScriptedDraw = { kind: "red" };
+const extra: ScriptedDraw = { kind: "extra" };
 
 describe("timeline", () => {
   it("expands each engine event into presentation steps in order", () => {
@@ -40,6 +41,20 @@ describe("timeline", () => {
     expect(travel[3]).toMatchObject({ kind: "travel", target: "blue" });
     expect(travel[3]?.kind === "travel" && travel[3].card.kind).toBe("purple");
   });
+
+  it("sends a +1 PACK to the queue, then brings in the next pack after the last card", () => {
+    const result = resolveRound({ seed: "tq", stake: 1, script: [g(0.3), extra, g(0.1), g(0.1), g(0.1), g(0.1), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2)] });
+    const steps = buildTimeline(result.events);
+    const kinds = steps.map((step) => step.kind);
+    expect(kinds.slice(0, 9)).toEqual(["pack_enter", "pack_open", "eject", "travel", "stack", "eject", "travel", "earn", "eject"]);
+    expect(steps[6]).toMatchObject({ kind: "travel", target: "queue" });
+    expect(steps[7]).toMatchObject({ kind: "earn", pending: 1, totalPacks: 2 });
+    expect(kinds.filter((kind) => kind === "pack_enter")).toHaveLength(2);
+    const second = steps.findIndex((step, index) => step.kind === "pack_enter" && index > 0);
+    expect(steps[second]).toMatchObject({ kind: "pack_enter", packNo: 2, pending: 0 });
+    expect(kinds[second - 1]).toBe("stack");
+    expect(kinds.at(-1)).toBe("settle");
+  });
 });
 
 describe("scene", () => {
@@ -47,15 +62,19 @@ describe("scene", () => {
     const cases = [
       resolveRound({ seed: "play-a", stake: 10 }),
       resolveRound({ seed: "play-b", stake: 10, script: [g(0.5), au(5), purple, red] }),
-      resolveRound({ seed: "demo-19", stake: 10 }),
-      resolveRound({ seed: "demo-335", stake: 10 }),
-      resolveRound({ seed: "demo-22", stake: 10 }),
+      resolveRound({ seed: "demo-283", stake: 10 }),
+      resolveRound({ seed: "demo-144", stake: 10 }),
+      resolveRound({ seed: "demo-547", stake: 10 }),
+      resolveRound({ seed: "demo-46", stake: 10 }),
     ];
     for (const result of cases) {
       const scene = reduceEvents(result.events);
       expect(scene.finalMicros).toBe(result.multiplierMicros);
       expect(scene.tier).toBe(result.tier);
       expect(scene.flyer).toBeNull();
+      expect(scene.packNo).toBe(result.openedPacks);
+      expect(scene.pendingPacks).toBe(0);
+      expect(scene.cancelledPacks).toBe(result.cancelledPacks);
       if (result.outcome === "bust") {
         expect(scene.status).toBe("bust");
         expect(scene.totalMicros).toBe(0n);
@@ -145,6 +164,61 @@ describe("scene", () => {
     expect(settled.bustPhase).toBe("dead");
   });
 
+  it("carries the stacks and a boost into the bonus pack and counts the queue", () => {
+    const result = resolveRound({
+      seed: "carry",
+      stake: 1,
+      script: [b(2), purple, extra, extra, g(0.5), g(0.5), b(1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), ...Array.from({ length: 6 }, () => g(0.2))],
+    });
+    const steps = buildTimeline(result.events);
+    const earnIndexes = steps.map((step, index) => (step.kind === "earn" ? index : -1)).filter((index) => index >= 0);
+    const firstEarn = reduceSteps(steps.slice(0, earnIndexes[0]! + 1));
+    expect(firstEarn.pendingPacks).toBe(1);
+    expect(firstEarn.packsTotal).toBe(2);
+    expect(firstEarn.earnKey).toBe(firstEarn.burst?.id);
+    expect(firstEarn.burst).toMatchObject({ tone: "extra", text: "+1 PACK" });
+    expect(firstEarn.caption).toMatch(/one more pack queued/);
+    const secondEarn = reduceSteps(steps.slice(0, earnIndexes[1]! + 1));
+    expect(secondEarn.pendingPacks).toBe(2);
+    expect(secondEarn.packsTotal).toBe(3);
+
+    const secondEnter = steps.findIndex((step) => step.kind === "pack_enter" && step.packNo === 2);
+    const entering = reduceSteps(steps.slice(0, secondEnter + 1));
+    expect(entering.pack).toBe("arriving");
+    expect(entering.packNo).toBe(2);
+    expect(entering.pendingPacks).toBe(1);
+    expect(entering.packsTotal).toBe(3);
+    expect(entering.stacks.blue.cards).toHaveLength(1);
+    expect(entering.stacks.blue.factor).toBe(2);
+    expect(entering.stacks.green.cards).toHaveLength(2);
+    expect(entering.totalMicros).toBe(5_000_000n);
+
+    const landedBlue = reduceSteps(steps.slice(0, steps.findIndex((step, index) => index > secondEnter && step.kind === "stack") + 1));
+    expect(landedBlue.stacks.blue.cards).toHaveLength(2);
+    expect(landedBlue.stacks.blue.totalMicros).toBe(6_000_000n);
+    expect(landedBlue.stacks.blue.factor).toBe(2);
+
+    const settled = reduceSteps(steps);
+    expect(settled.packNo).toBe(3);
+    expect(settled.pendingPacks).toBe(0);
+    expect(settled.status).toBe("won");
+    expect(settled.finalMicros).toBe(result.multiplierMicros);
+    expect(liveCardIds(settled)).toHaveLength(15);
+  });
+
+  it("cancels the queued packs when red strikes", () => {
+    const result = resolveRound({ seed: "cancel", stake: 1, script: [extra, g(0.5), extra, red] });
+    const steps = buildTimeline(result.events);
+    const strike = reduceSteps(steps.slice(0, steps.findIndex((step) => step.kind === "bust_strike") + 1));
+    expect(strike.pendingPacks).toBe(0);
+    expect(strike.cancelledPacks).toBe(2);
+    expect(strike.caption).toMatch(/2 queued packs cancelled/);
+    const settled = reduceSteps(steps);
+    expect(settled.status).toBe("bust");
+    expect(settled.packNo).toBe(1);
+    expect(settled.cancelledPacks).toBe(2);
+  });
+
   it("changes only timing when playback speed changes", () => {
     const result = resolveRound({ seed: "speed", stake: 9 });
     const again = resolveRound({ seed: "speed", stake: 9 });
@@ -153,5 +227,13 @@ describe("scene", () => {
     expect(delayFor("boost", "1x")).toBeGreaterThan(delayFor("boost", "2x"));
     expect(delayFor("eject", "2x")).toBeGreaterThan(0);
     expect(delayFor("bust_strike", "instant")).toBe(0);
+    expect(delayFor("earn", "instant")).toBe(0);
+  });
+
+  it("keeps a safe one-pack round around four to five seconds at 1×", () => {
+    const result = resolveRound({ seed: "pace", stake: 1, script: [g(0.3), b(1), g(0.3), g(0.3), b(1), g(0.3)] });
+    const ms = buildTimeline(result.events).reduce((sum, step) => sum + delayFor(step.kind, "1x"), 0);
+    expect(ms).toBeGreaterThanOrEqual(3_000);
+    expect(ms).toBeLessThanOrEqual(5_500);
   });
 });

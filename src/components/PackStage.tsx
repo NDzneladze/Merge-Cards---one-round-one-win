@@ -6,6 +6,7 @@ import type { PlaybackSpeed } from "../playback/timing";
 import { speedFactor } from "../playback/timing";
 import { CardBack, CardFace } from "./CardFace";
 import { CardBoard } from "./CardBoard";
+import { PackQueue } from "./PackQueue";
 import { ResultOverlay } from "./ResultOverlay";
 
 type Props = {
@@ -28,6 +29,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
   const stageRef = useRef<HTMLElement>(null);
   const mouthRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
+  const queueRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Partial<Record<StackColor, HTMLDivElement | null>>>({});
   const [flight, setFlight] = useState<Flight | null>(null);
 
@@ -51,7 +53,14 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
     let tx = 0;
     let ty = 0;
     if (flyer.phase === "travel") {
-      const target = flyer.target === "center" ? centerRef.current : flyer.target ? slotRefs.current[flyer.target] : null;
+      const target =
+        flyer.target === "center"
+          ? centerRef.current
+          : flyer.target === "queue"
+            ? queueRef.current
+            : flyer.target
+              ? slotRefs.current[flyer.target]
+              : null;
       const rect = target?.getBoundingClientRect();
       if (rect) {
         tx = rect.left + rect.width / 2 - stage.left - x;
@@ -72,6 +81,17 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
   const totalLabel = finalShown ? "Result" : "Total";
   const totalHint = idle ? "\u00a0" : finalShown ? (dead ? "red card" : scene.tier === "win" ? "final" : scene.tier === "none" ? "nothing collected" : scene.tier.toUpperCase() + " WIN") : "potential";
   const payoutValue = finalShown && result ? (result.payoutMicros > 0n ? `+${formatMicros(result.payoutMicros)}` : "0.00") : "—";
+  const multiPack = scene.packsTotal > 1;
+  const packValue = scene.packNo > 0 ? (multiPack ? `${scene.packNo}/${scene.packsTotal}` : `${scene.packNo}`) : "—";
+  const packHint = idle
+    ? `${scene.cardsInPack} cards`
+    : finalShown
+      ? multiPack
+        ? `${scene.packNo} opened`
+        : "opened"
+      : scene.pendingPacks > 0
+        ? `${scene.cardsLeftInPack} left · +${scene.pendingPacks} queued`
+        : `${scene.cardsLeftInPack} left`;
 
   return (
     <section
@@ -82,19 +102,14 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
       style={{ ["--anim" as string]: anim }}
     >
       <div className="hud">
-        <Meter
-          label="Pack"
-          value={scene.packNo > 0 ? (scene.packsTotal > 1 ? `${scene.packNo}/${scene.packsTotal}` : `${scene.packNo}`) : "—"}
-          hint={idle ? `${scene.cardsInPack} cards` : finalShown ? "opened" : `${scene.cardsLeftInPack} left`}
-          testId="pack-meter"
-        />
+        <Meter label="Pack" value={packValue} hint={packHint} testId="pack-meter" hot={burst?.tone === "extra"} />
         <Meter
           label={totalLabel}
           value={idle ? "—" : formatMultiplier(dead ? 0n : scene.totalMicros)}
           hint={totalHint}
           testId="total-meter"
           hero
-          hot={burst !== null && burst.tone !== "bust"}
+          hot={burst !== null && burst.tone !== "bust" && burst.tone !== "extra"}
           tone={finalShown ? (dead ? "bust" : scene.tier) : undefined}
         />
         <Meter label="Payout" value={payoutValue} hint={finalShown ? "credits" : "\u00a0"} testId="payout-meter" />
@@ -120,7 +135,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
       </p>
 
       <div className="pack-zone">
-        <div className={`pack pack-${idle ? "sealed" : scene.pack}`} data-testid="pack">
+        <div key={scene.packNo} className={`pack pack-${idle ? "sealed" : scene.pack} ${scene.packNo > 1 ? "is-bonus" : ""}`} data-testid="pack">
           <div className="pack-glow" />
           <div ref={mouthRef} className="pack-mouth">
             {Array.from({ length: scene.cardsLeftInPack }, (_, index) => (
@@ -128,14 +143,22 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
             ))}
           </div>
           <div className="pack-lid">
-            <span>Merge Pack</span>
+            <span>{scene.packNo > 1 ? "Bonus Pack" : "Merge Pack"}</span>
           </div>
           <div className="pack-body">
             <span className="pack-band" />
-            <strong>{scene.packsTotal > 1 && scene.packNo > 0 ? `PACK ${scene.packNo}` : "PACK"}</strong>
+            <strong>{multiPack && scene.packNo > 0 ? `PACK ${scene.packNo}` : "PACK"}</strong>
             <em>{idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}</em>
           </div>
         </div>
+        <PackQueue
+          ref={queueRef}
+          pending={scene.pendingPacks}
+          total={scene.packsTotal}
+          earnKey={scene.earnKey}
+          cancelled={dead ? scene.cancelledPacks : 0}
+          idle={idle}
+        />
       </div>
 
       {flyer && flight && flight.key === flyerKey ? (

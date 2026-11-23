@@ -62,6 +62,10 @@ function emptyStacks(): StackState[] {
 
 /**
  * Pure round resolver. No timers, DOM, or Math.random.
+ *
+ * One stake opens one pack. Every +1 PACK card queues one more pack of the
+ * same round, up to `maxPacks` in total; stacks and boosts persist across
+ * packs. A red card ends the whole round at 0× at once, cancelling the queue.
  * One call debits the stake once and emits exactly one terminal `round_end`.
  */
 export function resolveRound(input: ResolveInput): RoundResult {
@@ -69,8 +73,8 @@ export function resolveRound(input: ResolveInput): RoundResult {
   if (!Number.isInteger(config.cardsPerPack) || config.cardsPerPack < 1) {
     throw new Error("cardsPerPack must be a positive integer");
   }
-  if (!Number.isInteger(config.packsPerRound) || config.packsPerRound < 1) {
-    throw new Error("packsPerRound must be a positive integer");
+  if (!Number.isInteger(config.maxPacks) || config.maxPacks < 1) {
+    throw new Error("maxPacks must be a positive integer");
   }
 
   const rng = createRng(input.seed);
@@ -82,10 +86,20 @@ export function resolveRound(input: ResolveInput): RoundResult {
     return id;
   };
 
+  let opened = 0;
+  let pending = 0;
+  /** A +1 PACK may only be drawn while a complete extra pack can still be awarded. */
+  const canEarnPack = (): boolean => opened + pending < config.maxPacks;
+
   const drawCard = (): Card => {
     const scripted = script.shift();
-    const kind = scripted ? scripted.kind : drawKind(rng, config.weights);
+    const weights = canEarnPack() ? config.weights : { ...config.weights, extra: 0 };
+    const kind = scripted ? scripted.kind : drawKind(rng, weights);
     const id = nextId();
+    if (kind === "extra") {
+      if (!canEarnPack()) throw new Error("Scripted +1 PACK beyond maxPacks");
+      return { kind: "extra", id };
+    }
     if (kind === "red") return { kind: "red", id };
     if (kind === "purple") return { kind: "purple", id, factor: config.purpleFactor };
     const valueMicros =
@@ -99,12 +113,14 @@ export function resolveRound(input: ResolveInput): RoundResult {
   let stacks = emptyStacks();
   let outcome: RoundResult["outcome"] = "resolved";
   let lostMicros = 0n;
-  let opened = 0;
+  let earned = 0;
+  let cancelled = 0;
   let ended = false;
 
-  for (let packNo = 1; packNo <= config.packsPerRound && !ended; packNo += 1) {
-    opened = packNo;
-    events.push({ type: "pack_open", packNo, cards: config.cardsPerPack });
+  while (!ended) {
+    opened += 1;
+    const packNo = opened;
+    events.push({ type: "pack_open", packNo, cards: config.cardsPerPack, pending });
 
     for (let position = 0; position < config.cardsPerPack; position += 1) {
       const card = drawCard();
@@ -112,12 +128,21 @@ export function resolveRound(input: ResolveInput): RoundResult {
 
       if (card.kind === "red") {
         lostMicros = boardTotal(stacks);
+        cancelled = pending;
+        pending = 0;
         stacks = emptyStacks();
         outcome = "bust";
-        events.push({ type: "bust", cardId: card.id, lostMicros });
+        events.push({ type: "bust", cardId: card.id, lostMicros, cancelledPacks: cancelled });
         events.push({ type: "round_end", multiplierMicros: 0n, outcome: "bust", tier: "none" });
         ended = true;
         break;
+      }
+
+      if (card.kind === "extra") {
+        pending += 1;
+        earned += 1;
+        events.push({ type: "pack_earned", cardId: card.id, pending, totalPacks: opened + pending });
+        continue;
       }
 
       if (card.kind === "purple") {
@@ -150,6 +175,9 @@ export function resolveRound(input: ResolveInput): RoundResult {
         totalMicros: boardTotal(stacks),
       });
     }
+
+    if (ended || pending === 0) break;
+    pending -= 1;
   }
 
   const multiplierMicros = ended ? 0n : boardTotal(stacks);
@@ -167,6 +195,8 @@ export function resolveRound(input: ResolveInput): RoundResult {
     payoutMicros: payoutMicros(input.stake, multiplierMicros),
     tier,
     openedPacks: opened,
+    earnedPacks: earned,
+    cancelledPacks: cancelled,
     stacks,
     lostMicros,
     stakeDebits: 1,

@@ -48,6 +48,8 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
       return "land";
     case "boost":
       return "boost";
+    case "earn":
+      return "extra";
     case "bust_strike":
       return "bust";
     case "settle":
@@ -163,7 +165,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.3 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.4 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">

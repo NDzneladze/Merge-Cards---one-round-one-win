@@ -1,4 +1,4 @@
-type Cue = "pack" | "flip" | "land" | "boost" | "bust" | "win" | "bigwin" | "lose";
+type Cue = "pack" | "flip" | "land" | "boost" | "extra" | "bust" | "win" | "bigwin" | "lose";
 
 let context: AudioContext | null = null;
 
@@ -40,6 +40,10 @@ export function playCue(cue: Cue, muted: boolean): void {
       beep(440, 0.08, "triangle", 0.04);
       beep(660, 0.1, "triangle", 0.04, 0.07);
       beep(880, 0.16, "triangle", 0.04, 0.14);
+    }
+    if (cue === "extra") {
+      beep(523, 0.08, "square", 0.03);
+      beep(784, 0.14, "square", 0.03, 0.08);
     }
     if (cue === "bust") {
       beep(120, 0.3, "sawtooth", 0.05);
