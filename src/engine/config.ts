@@ -5,7 +5,7 @@ import type { CardKind, Difficulty, StackColor, WinTier } from "./types";
  * prototype knob: NOT a validated RTP, NOT certified, NOT for real money.
  * `npm run simulate` reports what the current knobs produce per difficulty.
  */
-export const DEMO_CONFIG_ID = "merge-packs-demo-v0.12";
+export const DEMO_CONFIG_ID = "merge-packs-demo-v0.13";
 
 export const MICRO = 1_000_000n;
 
@@ -64,45 +64,47 @@ export type ValueDistribution =
   | { kind: "weighted"; entries: readonly { valueMicros: bigint; weight: number }[] };
 
 /**
- * Green on Easy. Same 0.10×–1.00× denominations. v0.12 moves 9 weight from
- * 0.10× to 0.20× so the mean can sit near 0.95× after Grey takes value-card
- * weight. 93% are still ≤ 0.20×. Mean 0.1572×. The 0.75× and 1.00× cards stay.
+ * Green on Easy. Same 0.10×–1.00× denominations. v0.13 moves weight from
+ * 0.10× toward 0.18×–0.20×, and a little into 0.25×–0.50×, after Grey takes
+ * most of the green draw weight. 86% are still ≤ 0.20×. Mean 0.1837×.
+ * The 0.75× and 1.00× cards stay at weight 1.
  */
 export const GREEN_VALUES_EASY: ValueDistribution = {
   kind: "weighted",
   entries: [
-    { valueMicros: 100_000n, weight: 27 },
-    { valueMicros: 120_000n, weight: 23 },
-    { valueMicros: 130_000n, weight: 19 },
-    { valueMicros: 150_000n, weight: 9 },
-    { valueMicros: 180_000n, weight: 3 },
-    { valueMicros: 200_000n, weight: 12 },
-    { valueMicros: 250_000n, weight: 1 },
-    { valueMicros: 300_000n, weight: 2 },
-    { valueMicros: 400_000n, weight: 1 },
-    { valueMicros: 500_000n, weight: 1 },
+    { valueMicros: 100_000n, weight: 12 },
+    { valueMicros: 120_000n, weight: 20 },
+    { valueMicros: 130_000n, weight: 16 },
+    { valueMicros: 150_000n, weight: 10 },
+    { valueMicros: 180_000n, weight: 8 },
+    { valueMicros: 200_000n, weight: 20 },
+    { valueMicros: 250_000n, weight: 4 },
+    { valueMicros: 300_000n, weight: 4 },
+    { valueMicros: 400_000n, weight: 2 },
+    { valueMicros: 500_000n, weight: 2 },
     { valueMicros: 750_000n, weight: 1 },
     { valueMicros: 1_000_000n, weight: 1 },
   ],
 };
 
 /**
- * Green on Medium. v0.12 moves 19 weight from 0.10× to 0.20×. Medium keeps its
- * own table because it also has Gold. 89% are ≤ 0.20×. Mean 0.176×.
+ * Green on Medium. v0.13 shifts the same 0.10×–1.00× band: less 0.10×–0.13×,
+ * more 0.18×–0.30×. Medium keeps its own table because it also has Gold.
+ * 84% are ≤ 0.20×. Mean 0.1954×. The 0.75× and 1.00× cards stay at weight 1.
  */
 export const GREEN_VALUES: ValueDistribution = {
   kind: "weighted",
   entries: [
-    { valueMicros: 100_000n, weight: 12 },
-    { valueMicros: 120_000n, weight: 23 },
-    { valueMicros: 130_000n, weight: 19 },
-    { valueMicros: 150_000n, weight: 9 },
-    { valueMicros: 180_000n, weight: 4 },
-    { valueMicros: 200_000n, weight: 22 },
-    { valueMicros: 250_000n, weight: 3 },
-    { valueMicros: 300_000n, weight: 3 },
-    { valueMicros: 400_000n, weight: 2 },
-    { valueMicros: 500_000n, weight: 1 },
+    { valueMicros: 100_000n, weight: 6 },
+    { valueMicros: 120_000n, weight: 16 },
+    { valueMicros: 130_000n, weight: 14 },
+    { valueMicros: 150_000n, weight: 12 },
+    { valueMicros: 180_000n, weight: 10 },
+    { valueMicros: 200_000n, weight: 26 },
+    { valueMicros: 250_000n, weight: 5 },
+    { valueMicros: 300_000n, weight: 4 },
+    { valueMicros: 400_000n, weight: 3 },
+    { valueMicros: 500_000n, weight: 2 },
     { valueMicros: 750_000n, weight: 1 },
     { valueMicros: 1_000_000n, weight: 1 },
   ],
@@ -117,21 +119,22 @@ export const BLUE_VALUES: ValueDistribution = {
 };
 
 /**
- * Blue on Hard, where every prize card is worth ≥ 1×. v0.12 shifts weight from
- * 1.00× toward 1.50× and 2.00× so the mode can sit near 0.95× after Grey takes
- * blue's draw weight. Span stays 1.00×–3.00×. Mean 1.336×. The 3.00× card stays.
+ * Blue on Hard, where every prize card is worth ≥ 1×. v0.13 moves weight from
+ * 1.00× toward 2.00× and 2.50× so the mode can sit near 0.95× after Grey takes
+ * blue's draw weight. Span stays 1.00×–3.00×. Mean 1.825×. 47% are still ≤ 1.50×,
+ * which is more low cards than Easy/Medium's flat 1.00×–3.00× table. The 3.00×
+ * card stays in the table at weight 10.
  */
 export const BLUE_VALUES_HARD: ValueDistribution = {
   kind: "weighted",
   entries: [
-    { valueMicros: 1_000_000n, weight: 30 },
-    { valueMicros: 1_050_000n, weight: 14 },
-    { valueMicros: 1_100_000n, weight: 12 },
-    { valueMicros: 1_200_000n, weight: 11 },
-    { valueMicros: 1_500_000n, weight: 13 },
-    { valueMicros: 2_000_000n, weight: 16 },
-    { valueMicros: 2_500_000n, weight: 2 },
-    { valueMicros: 3_000_000n, weight: 2 },
+    { valueMicros: 1_000_000n, weight: 11 },
+    { valueMicros: 1_100_000n, weight: 10 },
+    { valueMicros: 1_200_000n, weight: 10 },
+    { valueMicros: 1_500_000n, weight: 16 },
+    { valueMicros: 2_000_000n, weight: 26 },
+    { valueMicros: 2_500_000n, weight: 17 },
+    { valueMicros: 3_000_000n, weight: 10 },
   ],
 };
 
@@ -188,19 +191,23 @@ export const DIFFICULTY_ORDER = ["easy", "medium", "hard"] as const satisfies re
 /**
  * Draw weights, per-mille, summing to 1000. NOT certified RTP.
  *
- * v0.12 raises Grey by taking weight from value cards. Red, Purple, Gold and
- * +1 PACK stay at the v0.11 weights. Grey is still its own bucket.
+ * v0.13 makes Grey a major share of every pack. The extra Grey weight comes
+ * out of value cards. Red, Purple, Gold and +1 PACK stay at the v0.12 weights.
+ * Red was not raised.
  *
- * Hard's red weight stays 29.0%. It was not raised to pull the mean down.
+ * Green denominations alone cannot put Easy or Medium back near 0.95× while
+ * green stays mostly 0.10×–0.20×. A slice of the remaining green weight moves
+ * to Blue, which keeps its 1.00×–3.00× uniform table. Gold's weight does not
+ * move. Hard replaces Blue draw weight with Grey and retunes Blue's own table.
  *
- * v0.11 → v0.12 per-mille:
- * Easy   grey 88 → 180 (18.0%). Green 724 → 632. Blue, Purple, Red, +1 unchanged.
- * Medium grey 94 → 180 (18.0%). Green 704 → 618. Blue, Gold, Purple, Red, +1 unchanged.
- * Hard   grey 50 → 110 (11.0%). Blue 586 → 526. Gold, Purple, Red, +1 unchanged.
+ * v0.12 → v0.13 per-mille:
+ * Easy   grey 180 → 400 (40%). Green 632 → 383. Blue 20 → 49. Purple, Red, +1 unchanged.
+ * Medium grey 180 → 400 (40%). Green 618 → 369. Blue 22 → 51. Gold, Purple, Red, +1 unchanged.
+ * Hard   grey 110 → 250 (25%). Blue 526 → 386. Gold, Purple, Red, +1 unchanged.
  *
- * Easy   green 63.2 · blue 2.0 · grey 18.0 · purple 2.4 · red 7.8 · +1 6.6
- * Medium green 61.8 · blue 2.2 · gold 0.5 · grey 18.0 · purple 1.8 · red 9.6 · +1 6.1
- * Hard   blue 52.6 · gold 1.6 · grey 11.0 · purple 2.6 · red 29.0 · +1 3.2
+ * Easy   green 38.3 · blue 4.9 · grey 40.0 · purple 2.4 · red 7.8 · +1 6.6
+ * Medium green 36.9 · blue 5.1 · gold 0.5 · grey 40.0 · purple 1.8 · red 9.6 · +1 6.1
+ * Hard   blue 38.6 · gold 1.6 · grey 25.0 · purple 2.6 · red 29.0 · +1 3.2
  */
 export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
   easy: {
@@ -208,7 +215,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Easy",
     colors: ["green", "blue"],
     blurb: "Green + Blue · frequent small returns",
-    weights: { green: 632, blue: 20, gold: 0, grey: 180, purple: 24, red: 78, extra: 66 },
+    weights: { green: 383, blue: 49, gold: 0, grey: 400, purple: 24, red: 78, extra: 66 },
     values: VALUE_TABLES_EASY,
   },
   medium: {
@@ -216,7 +223,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Medium",
     colors: ["green", "blue", "gold"],
     blurb: "Green + Blue + Gold · balanced",
-    weights: { green: 618, blue: 22, gold: 5, grey: 180, purple: 18, red: 96, extra: 61 },
+    weights: { green: 369, blue: 51, gold: 5, grey: 400, purple: 18, red: 96, extra: 61 },
     values: VALUE_TABLES,
   },
   hard: {
@@ -224,7 +231,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Hard",
     colors: ["blue", "gold"],
     blurb: "Blue + Gold only · mostly busts, heavy hits",
-    weights: { green: 0, blue: 526, gold: 16, grey: 110, purple: 26, red: 290, extra: 32 },
+    weights: { green: 0, blue: 386, gold: 16, grey: 250, purple: 26, red: 290, extra: 32 },
     values: VALUE_TABLES_HARD,
   },
 };

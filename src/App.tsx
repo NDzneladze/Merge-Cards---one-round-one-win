@@ -213,7 +213,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.12 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.13 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">

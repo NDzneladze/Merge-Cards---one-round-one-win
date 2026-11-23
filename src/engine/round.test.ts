@@ -208,13 +208,14 @@ describe("config", () => {
       expect(mode.weights.extra).toBeGreaterThan(0);
       expect(mode.weights.grey).toBeGreaterThan(0);
       expect(mode.weights.grey).not.toBe(mode.weights.green);
-      // v0.12 did not move Red. These are the v0.10 per-mille weights.
+      // v0.13 did not move Red, Purple, Gold or +1 PACK. These are the v0.10 per-mille weights.
       expect(mode.weights.red).toBe(id === "easy" ? 78 : id === "medium" ? 96 : 290);
-      // Grey is noticeably more common than v0.11 (88 / 94 / 50) and stays inside the exploration band.
-      const greyBand = id === "hard" ? [90, 130] : [160, 200];
-      expect(mode.weights.grey).toBeGreaterThanOrEqual(greyBand[0]!);
-      expect(mode.weights.grey).toBeLessThanOrEqual(greyBand[1]!);
-      expect(mode.weights.grey).toBeGreaterThan(id === "hard" ? 50 : 94);
+      expect(mode.weights.purple).toBe(id === "easy" ? 24 : id === "medium" ? 18 : 26);
+      expect(mode.weights.extra).toBe(id === "easy" ? 66 : id === "medium" ? 61 : 32);
+      expect(mode.weights.gold).toBe(id === "medium" ? 5 : id === "hard" ? 16 : 0);
+      // Grey is more than double the shipped v0.12 weights (180 / 180 / 110).
+      expect(mode.weights.grey).toBe(id === "hard" ? 250 : 400);
+      expect(mode.weights.grey).toBeGreaterThan((id === "hard" ? 110 : 180) * 2);
       expect(configFor(id).maxPacks).toBe(6);
       expect(configFor(id).cardsPerPack).toBe(6);
     }
@@ -260,6 +261,46 @@ describe("config", () => {
         }
       }
       expect([...seen].sort()).toEqual([...mode.colors, "extra", "grey", "purple", "red"].sort());
+    }
+  });
+
+  it("deals Grey at the configured share on a seeded stream, and in resolved rounds", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      const mode = DIFFICULTIES[id];
+      const rng = createRng(`grey-share-${id}`);
+      let greyDraws = 0;
+      const draws = 8_000;
+      for (let i = 0; i < draws; i += 1) {
+        if (drawKind(rng, mode.weights) === "grey") greyDraws += 1;
+      }
+      const drawShare = greyDraws / draws;
+      const configured = mode.weights.grey / 1000;
+      expect(drawShare).toBeGreaterThan(configured - 0.025);
+      expect(drawShare).toBeLessThan(configured + 0.025);
+      // A 20% table cannot pass. v0.12 was 18% / 18% / 11%.
+      expect(drawShare).toBeGreaterThan(id === "hard" ? 0.2 : 0.32);
+
+      let greyCards = 0;
+      let reveals = 0;
+      let roundsWithTwo = 0;
+      const rounds = 1_500;
+      for (let i = 0; i < rounds; i += 1) {
+        const result = resolveRound({ seed: `grey-play-${id}-${i}`, stake: 1, difficulty: id });
+        greyCards += result.greyCards;
+        reveals += result.events.filter((event) => event.type === "card_reveal").length;
+        if (result.greyCards >= 2) roundsWithTwo += 1;
+        for (const event of result.events) {
+          if (event.type !== "grey") continue;
+          expect(event.stackTotalMicros).toBeGreaterThanOrEqual(0n);
+          expect(result.stacks.length).toBeGreaterThan(0);
+        }
+      }
+      const playedShare = greyCards / reveals;
+      expect(playedShare).toBeGreaterThan(configured - 0.03);
+      expect(playedShare).toBeLessThan(configured + 0.03);
+      // Ordinary rounds, not a script: several Greys in one round is common on Easy and Medium.
+      const twoShare = roundsWithTwo / rounds;
+      expect(twoShare).toBeGreaterThan(id === "hard" ? 0.1 : 0.45);
     }
   });
 
@@ -445,7 +486,7 @@ describe("resolveRound", () => {
         expect(example.difficulty).toBe("easy");
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.multiplierMicros).toBe(760_000n);
+        expect(result.multiplierMicros).toBe(250_000n);
       }
       if (example.id === "bust") {
         expect(result.outcome).toBe("bust");
