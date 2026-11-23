@@ -2,9 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { resolveRound } from "../engine/round";
 import type { ScriptedDraw } from "../engine/types";
-import { buildTimeline, initialScene, reduceSteps, type Scene } from "../playback/scene";
+import { buildTimeline, initialScene, reduceSteps, type Scene, type StackView } from "../playback/scene";
 import { PLAYBACK_SCALE } from "../playback/timing";
 import { PackStage } from "./PackStage";
+import { VISIBLE_FACES } from "./fitStage";
 
 const g = (value: number): ScriptedDraw => ({ kind: "green", value });
 const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
@@ -125,6 +126,45 @@ describe("pack opening presentation", () => {
     expect(screen.getByTestId("fullstack-green")).toHaveTextContent(/full stack ×2/i);
     expect(screen.queryByTestId("progress-green")).toBeNull();
     expect(screen.getAllByTestId("fullstack-green")).toHaveLength(1);
+  });
+
+  it("draws a tall green pile as a faced stack, not one stripe per card", () => {
+    const base = initialScene();
+    const cards = Array.from({ length: 27 }, (_, index) => ({
+      id: `g${index}`,
+      valueMicros: index === 26 ? 130_000n : 200_000n,
+      state: "idle" as const,
+    }));
+    const green: StackView = {
+      ...base.stacks.green,
+      cards,
+      totalMicros: 7_900_000n,
+      fullStack: true,
+      fullStackKey: "seal",
+    };
+    const scene = {
+      ...base,
+      status: "playing" as const,
+      stacks: { ...base.stacks, green, blue: { ...base.stacks.blue, cards: [{ id: "b0", valueMicros: 1_500_000n, state: "idle" as const }], totalMicros: 1_500_000n } },
+    };
+    render(<PackStage scene={scene} result={null} roundKey="tall" settled={false} />);
+    const pile = screen.getByTestId("pile-green");
+    expect(pile).toHaveAttribute("data-count", "27");
+    expect(pile).toHaveAttribute("data-shown", String(VISIBLE_FACES));
+    expect(pile.querySelectorAll(".stack-card")).toHaveLength(27);
+    expect(pile.querySelectorAll(".stack-card.is-shown")).toHaveLength(VISIBLE_FACES);
+    expect(pile.querySelectorAll(".stack-card.is-buried")).toHaveLength(27 - VISIBLE_FACES);
+    expect(screen.getByTestId("thickness-green")).toBeInTheDocument();
+    expect(screen.getByTestId("count-green")).toHaveTextContent("27 CARDS");
+    expect(screen.getByTestId("stack-green-total")).toHaveTextContent("7.90×");
+    const front = pile.querySelectorAll(".stack-card")[26];
+    expect(front?.querySelector(".card-art .hero-green")).toBeTruthy();
+    expect(front?.querySelector(".card-value")).toHaveTextContent("0.13×");
+    expect(front?.querySelector(".card-value")).not.toHaveTextContent("7.90×");
+    expect(screen.getByTestId("fullstack-green").closest(".card")).toBeNull();
+    expect(screen.getByTestId("pile-gold").querySelector(".landing-hint")).toBeTruthy();
+    expect(screen.getByTestId("pile-gold").querySelector(".card")).toBeNull();
+    expect(screen.getByTestId("pack")).toHaveTextContent(/merge packs/i);
   });
 
   it("locks the animation scale to the former 2× tempo", () => {

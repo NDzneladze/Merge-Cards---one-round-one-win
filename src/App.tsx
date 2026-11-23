@@ -11,6 +11,7 @@ import { resolveRound } from "./engine/round";
 import type { Difficulty, RoundResult } from "./engine/types";
 import { buildTimeline, initialScene, reduceSteps, sceneFor, type Step } from "./playback/scene";
 import { delayFor } from "./playback/timing";
+import { appliedFor, readLaunch } from "./launch";
 import "./styles.css";
 
 const BALANCE_KEY = "merge-packs-demo-balance-v1";
@@ -66,15 +67,49 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
   }
 }
 
+function bootRound(): { round: ActiveRound; applied: number } | null {
+  const launch = readLaunch(window.location.search);
+  if (!launch) return null;
+  const result = resolveRound({
+    seed: launch.seed,
+    stake: DEFAULT_STAKE,
+    difficulty: launch.difficulty,
+    script: launch.script,
+  });
+  const steps = buildTimeline(result.events);
+  return {
+    round: {
+      playId: `launch:${launch.difficulty}:${launch.seed}:${launch.at ?? "play"}`,
+      result,
+      steps,
+    },
+    applied: appliedFor(steps, launch.at),
+  };
+}
+
 export function App() {
-  const [balance, setBalance] = useState(readBalance);
+  const [boot] = useState(bootRound);
+  const [balance, setBalance] = useState(() => {
+    const saved = readBalance();
+    if (!boot) return saved;
+    const key = `merge-packs-debited:${boot.round.playId}`;
+    try {
+      if (sessionStorage.getItem(key)) return readBalance();
+      sessionStorage.setItem(key, "1");
+    } catch {
+      return saved;
+    }
+    const next = saved - creditsToMicros(boot.round.result.stake);
+    writeBalance(next);
+    return next;
+  });
   const [stake, setStake] = useState(DEFAULT_STAKE);
-  const [seed, setSeed] = useState("");
-  const [difficulty, setDifficulty] = useState<Difficulty>(DEFAULT_DIFFICULTY);
+  const [seed, setSeed] = useState(boot?.round.result.seed ?? "");
+  const [difficulty, setDifficulty] = useState<Difficulty>(boot?.round.result.difficulty ?? DEFAULT_DIFFICULTY);
   const [muted, setMuted] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const [round, setRound] = useState<ActiveRound | null>(null);
-  const [applied, setApplied] = useState(0);
+  const [round, setRound] = useState<ActiveRound | null>(boot?.round ?? null);
+  const [applied, setApplied] = useState(boot?.applied ?? 0);
   const sounded = useRef("");
 
   const playId = round?.playId;
@@ -110,7 +145,13 @@ export function App() {
   const settledFor = useRef<string | null>(null);
   useEffect(() => {
     if (!round || !done) return;
-    if (settledFor.current === round.playId) return;
+    const key = `merge-packs-paid:${round.playId}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      if (settledFor.current === round.playId) return;
+    }
     settledFor.current = round.playId;
     setBalance((current) => {
       const next = current + round.result.payoutMicros;
@@ -169,7 +210,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.8 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.9 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">
@@ -179,33 +220,32 @@ export function App() {
           <button type="button" className="ghost" aria-pressed={!muted} onClick={() => setMuted((current) => !current)}>
             {muted ? "Sound off" : "Sound on"}
           </button>
-          <button type="button" className="ghost" onClick={() => setInfoOpen(true)}>
-            Rules
-          </button>
         </div>
       </header>
 
-      <main>
-        <PackStage scene={scene} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
-      </main>
-
-      <BetPanel
-        stake={stake}
-        maxStake={maxStake}
-        playing={playing}
-        canPlay={canPlay}
-        broke={broke}
-        seed={seed}
-        difficulty={difficulty}
-        onStake={setStake}
-        onPlay={play}
-        onSeed={setSeed}
-        onDifficulty={(next) => {
-          if (!playing) setDifficulty(next);
-        }}
-        onExample={pickExample}
-        onRefill={refill}
-      />
+      <div className="table-shell" data-testid="table-shell">
+        <BetPanel
+          stake={stake}
+          maxStake={maxStake}
+          playing={playing}
+          canPlay={canPlay}
+          broke={broke}
+          seed={seed}
+          difficulty={difficulty}
+          onStake={setStake}
+          onPlay={play}
+          onSeed={setSeed}
+          onDifficulty={(next) => {
+            if (!playing) setDifficulty(next);
+          }}
+          onExample={pickExample}
+          onRefill={refill}
+          onInfo={() => setInfoOpen(true)}
+        />
+        <main>
+          <PackStage scene={scene} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
+        </main>
+      </div>
 
       {infoOpen ? <InfoModal onClose={() => setInfoOpen(false)} /> : null}
     </div>

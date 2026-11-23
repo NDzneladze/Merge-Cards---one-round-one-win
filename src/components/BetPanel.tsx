@@ -17,9 +17,10 @@ type Props = {
   onDifficulty: (difficulty: Difficulty) => void;
   onExample: (example: FeaturedSeed) => void;
   onRefill: () => void;
+  onInfo: () => void;
 };
 
-/** Compact control bar under the stage. The scene above stays the focus. */
+/** Left rail on a wide screen, and the bar under the table on a phone. */
 export function BetPanel(props: Props) {
   const { playing, maxStake, stake } = props;
   const mode = DIFFICULTIES[props.difficulty];
@@ -117,6 +118,9 @@ export function BetPanel(props: Props) {
           </label>
         </div>
       </details>
+      <button type="button" className="ghost rules-button" onClick={props.onInfo}>
+        Rules
+      </button>
     </aside>
   );
 }

@@ -5,6 +5,8 @@ import type { Scene } from "../playback/scene";
 import { PLAYBACK_SCALE } from "../playback/timing";
 import { CardBoard } from "./CardBoard";
 import { CardBack, CardFace } from "./CardFace";
+import { CardLegend } from "./CardLegend";
+import { fitStage } from "./fitStage";
 import { PackArt } from "./PackArt";
 import { ResultOverlay } from "./ResultOverlay";
 
@@ -34,6 +36,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
   const boostersRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Partial<Record<StackColor, HTMLDivElement | null>>>({});
   const [flight, setFlight] = useState<Flight | null>(null);
+  const [legend, setLegend] = useState(false);
 
   const registerSlot = useCallback((color: StackColor, element: HTMLDivElement | null) => {
     slotRefs.current[color] = element;
@@ -41,38 +44,39 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
-    const app = stage?.closest<HTMLElement>(".app");
-    if (!stage || !app) return;
+    if (!stage) return;
     const fit = () => {
       const viewport = document.documentElement.clientWidth;
-      const height = stage.clientHeight;
-      if (viewport < 80 || height < 80) return;
-      const hud = stage.querySelector<HTMLElement>(".hud")?.offsetHeight ?? 60;
-      const caption = stage.querySelector<HTMLElement>(".caption")?.offsetHeight ?? 18;
-      const actionH = height - hud - caption - 10;
-      const piles = scene.colors.length;
-      const short = window.innerHeight <= 780;
-      const narrow = viewport < 760;
-      const lip = short ? 18 : narrow ? 16 : 30;
-      const peek = narrow ? 11 : 14;
-      // One card of height, the pack, and the two sealed lips under it.
-      const packHFactor = 1.42 * 0.9;
-      const byHeight = (actionH - lip * 2 - 52) / (1.4 + packHFactor);
-      const byWidth = (Math.min(viewport, 1080) - 40) / (piles === 2 ? 2.35 : 3.35);
-      // Cap the face so an empty lane cannot become a giant panel, and a red
-      // strike cannot grow into a slab that covers the HUD.
-      const cap = short ? 108 : narrow ? 100 : 124;
-      const card = Math.round(Math.max(72, Math.min(cap, byWidth, byHeight)));
-      const gap = piles > 1 ? (narrow ? 10 : short ? 12 : 16) : 0;
-      app.style.maxWidth = "";
-      stage.style.setProperty("--card-w", `${card}px`);
-      stage.style.setProperty("--peek", `${peek}px`);
-      stage.style.setProperty("--lip", `${lip}px`);
-      stage.style.setProperty("--gap", `${gap}px`);
+      const action = stage.querySelector<HTMLElement>(".action");
+      const width = action?.clientWidth ?? 0;
+      const height = action?.clientHeight ?? 0;
+      if (viewport < 80 || width < 80 || height < 80) return;
+      const narrow = viewport < 860;
+      const short = window.innerHeight <= 760;
+      const next = fitStage({
+        stageWidth: width,
+        actionHeight: height,
+        piles: scene.colors.length,
+        narrow,
+        short,
+      });
+      stage.style.setProperty("--card-w", `${next.card}px`);
+      stage.style.setProperty("--peek", `${next.peek}px`);
+      stage.style.setProperty("--lip", `${next.lip}px`);
+      stage.style.setProperty("--gap", `${next.gap}px`);
+      stage.style.setProperty("--pack-w", `${next.packW}px`);
+      stage.style.setProperty("--pack-h", `${next.packH}px`);
+      stage.dataset.cardW = String(next.card);
+      stage.dataset.cluster = String(Math.round(next.cluster));
+      stage.dataset.occupancy = next.occupancy.toFixed(3);
+      stage.dataset.tableW = String(Math.round(width));
+      setLegend((current) => (current === next.legend ? current : next.legend));
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(stage);
+    const action = stage.querySelector(".action");
+    if (action) observer.observe(action);
     observer.observe(document.documentElement);
     return () => observer.disconnect();
   }, [scene.colors.length]);
@@ -185,7 +189,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
   return (
     <section
       ref={stageRef}
-      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""}`}
+      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""} ${legend ? "show-legend" : ""}`}
       data-testid="stage"
       aria-label="Game stage"
       style={{ ["--anim" as string]: String(PLAYBACK_SCALE) }}
@@ -262,7 +266,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
                   data-depth={depth}
                   aria-hidden="true"
                 >
-                  <PackArt bonus sealed product="Bonus pack" detail="Sealed" />
+                  <PackArt bonus sealed product="Merge Packs" detail="Sealed" />
                 </div>
               );
             })}
@@ -277,7 +281,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
               <PackArt
                 bonus={bonusPack}
                 sealed={!packOpen}
-                product={bonusPack ? "Bonus pack" : "Merge pack"}
+                product="Merge Packs"
                 detail={packDetail}
                 cardsLeft={scene.cardsLeftInPack}
                 mouthRef={mouthRef}
@@ -329,6 +333,8 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       ) : null}
 
       {scene.bustPhase === "strike" || scene.bustPhase === "wipe" ? <div className="red-flash" aria-hidden="true" /> : null}
+
+      {legend ? <CardLegend /> : null}
 
       {result && settled ? <ResultOverlay result={result} roundKey={roundKey} /> : null}
     </section>
