@@ -166,6 +166,9 @@ describe("App", () => {
     expect(screen.getByTestId("booster-count")).toHaveTextContent("−2");
     expect(screen.getByTestId("booster-count")).toHaveClass("is-dead");
     expect(screen.getByTestId("caption")).toHaveTextContent(/0\.00×/);
+    expect(screen.getByTestId("bust-badge")).toHaveTextContent(/Bust/);
+    expect(screen.getByTestId("bust-badge")).toHaveTextContent("0.00×");
+    expect(meterOf("total-meter")).toHaveTextContent(/bust · 0×/);
     expect(document.querySelectorAll(".stack-card.is-dying").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(screen.queryByTestId("win-badge")).toBeNull();
