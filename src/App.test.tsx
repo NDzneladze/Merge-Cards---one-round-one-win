@@ -31,20 +31,20 @@ const pileColors = () => [...document.querySelectorAll(".pile")].map((pile) => p
 describe("App", () => {
   it("plays a +1 PACK chain from one stake, keeps the boost across packs, shows the HUD-only win badge, and debits the stake once per round", async () => {
     const user = userEvent.setup();
-    const seed = "demo-14";
+    const seed = "demo-189";
     const stake = 10;
     const engine = resolveRound({ seed, stake, difficulty: "medium" });
     expect(engine.tier).toBe("win");
     expect(engine.openedPacks).toBe(2);
     render(<App />);
 
-    expect(screen.getByText(/Prototype v0.11/)).toBeInTheDocument();
+    expect(screen.getByText(/Prototype v0.12/)).toBeInTheDocument();
     // The legend is a closed block in the rail. It is not on the table.
     const legend = screen.getByTestId("card-legend");
     expect(legend.closest(".controls")).toBeTruthy();
     expect(legend).not.toHaveAttribute("open");
     expect(legend).toHaveTextContent(/Grey/);
-    expect(legend).toHaveTextContent(/joins a pile/);
+    expect(legend).toHaveTextContent(/builds the pile/);
     expect(screen.getByTestId("stage").querySelector(".legend-row")).toBeNull();
     expect(screen.getByTestId("table-shell").querySelector(".controls")).toBeTruthy();
     expect(screen.getByTestId("table-shell").querySelector("main")).toBeTruthy();
@@ -102,27 +102,27 @@ describe("App", () => {
 
   it("Easy with small greens finishes below 1×: payout is shown as a return, never a win", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-21", stake: 10, difficulty: "easy" });
+    const engine = resolveRound({ seed: "demo-596", stake: 10, difficulty: "easy" });
     expect(engine.tier).toBe("return");
-    expect(engine.multiplierMicros).toBe(700_000n);
+    expect(engine.multiplierMicros).toBe(760_000n);
     render(<App />);
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Small return" }));
     expect(screen.getByTestId("difficulty-easy")).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByTestId("play-button"));
 
-    await waitFor(() => expect(screen.getByTestId("result-badge")).toHaveAttribute("aria-label", "Return · below stake 0.70×"));
-    expect(screen.getByTestId("total-meter")).toHaveTextContent("0.70×");
+    await waitFor(() => expect(screen.getByTestId("result-badge")).toHaveAttribute("aria-label", "Return · below stake 0.76×"));
+    expect(screen.getByTestId("total-meter")).toHaveTextContent("0.76×");
     expect(screen.getByTestId("result-badge")).toHaveTextContent(/Return/);
     expect(screen.queryByTestId("win-badge")).toBeNull();
     expect(meterOf("total-meter")).not.toHaveTextContent(/win/i);
-    expect(screen.getByTestId("payout-meter")).toHaveTextContent("+7.00");
-    expect(meterOf("payout-meter")).toHaveTextContent("net −3.00");
+    expect(screen.getByTestId("payout-meter")).toHaveTextContent("+7.60");
+    expect(meterOf("payout-meter")).toHaveTextContent("net −2.40");
     expect(meterOf("total-meter")).toHaveTextContent(/Return · below stake/);
-    expect(screen.getByTestId("caption")).toHaveTextContent(/return 0\.70× · below the stake/);
+    expect(screen.getByTestId("caption")).toHaveTextContent(/return 0\.76× · below the stake/);
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(pileColors()).toEqual(["green", "blue"]);
-    expect(document.querySelectorAll(".stack-card").length).toBe(6);
+    expect(document.querySelectorAll(".stack-card").length).toBe(engine.stacks.reduce((sum, stack) => sum + stack.cards.length, 0));
     const balance = creditsToMicros(STARTING_BALANCE_CREDITS) - creditsToMicros(10) + engine.payoutMicros;
     await waitFor(() => expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(balance)));
   });
@@ -144,7 +144,7 @@ describe("App", () => {
 
   it("Hard deals only Blue and Gold into two piles", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-141", stake: 10, difficulty: "hard" });
+    const engine = resolveRound({ seed: "demo-18", stake: 10, difficulty: "hard" });
     expect(engine.tier).toBe("big");
     render(<App />);
     await openExamples(user);
@@ -194,7 +194,7 @@ describe("App", () => {
 
   it("stacks boosters under the pack while a chain is pending and counts them", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-282", stake: 10, difficulty: "medium" });
+    const engine = resolveRound({ seed: "demo-1523", stake: 10, difficulty: "medium" });
     expect(engine.openedPacks).toBe(3);
     render(<App />);
     await openExamples(user);
@@ -209,7 +209,7 @@ describe("App", () => {
 
   it("opens the short celebration from 10× with a count-up and lets it be dismissed", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-104", stake: 10, difficulty: "medium" });
+    const engine = resolveRound({ seed: "demo-463", stake: 10, difficulty: "medium" });
     expect(engine.tier).toBe("big");
     render(<App />);
     await openExamples(user);
@@ -238,6 +238,8 @@ describe("App", () => {
     expect(dialog).toHaveTextContent(/RED/);
     expect(dialog).toHaveTextContent(/GREY/);
     expect(dialog).toHaveTextContent(/STACK BONUS ×2/);
+    expect(dialog).toHaveTextContent(/STACK ×4/);
+    expect(dialog).toHaveTextContent(/does not stack into ×8/);
     expect(dialog).toHaveTextContent(/joins a random pile/);
     expect(dialog.querySelectorAll(".legend-row")).toHaveLength(8);
     expect(dialog).toHaveTextContent(/Easy/);

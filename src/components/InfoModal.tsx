@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, FULL_STACK_FACTOR, GREEN_VALUES, GREEN_VALUES_EASY, MAX_PACKS, PURPLE_FACTOR, WIN_TIERS } from "../engine/config";
+import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, FULL_STACK_FACTOR, GREEN_VALUES, GREEN_VALUES_EASY, MAX_PACKS, PURPLE_FACTOR, SUPER_STACK_COUNT, SUPER_STACK_FACTOR, WIN_TIERS } from "../engine/config";
 import type { ValueDistribution } from "../engine/config";
 import { valueBounds } from "../engine/draw";
 import { formatMultiplier } from "../engine/money";
@@ -63,13 +63,18 @@ export function InfoModal({ onClose }: Props) {
           <li>
             <strong>GREY</strong> is an empty card, 0×. It joins a random pile that already holds a card, or any pile if
             the table is empty. It adds nothing to that pile's value and it is not a bust, a boost or a pack. It does
-            count as a card in the pile, so it helps that pile reach Stack Bonus and it can draw a Purple onto it.
+            count as a card, so it builds the pile toward 10 and 20. A Grey can be the card that awards the bonus. The
+            prize is the stack, not the Grey. It can also draw a Purple onto its pile.
           </li>
           <li>
-            <strong>STACK BONUS ×{FULL_STACK_FACTOR}</strong> happens once per pile, when the pile reaches {FULL_STACK_COUNT}{" "}
-            cards. Green, Blue, Gold and Grey cards count. Purple, Red and +1 PACK do not. It doubles the whole pile, on
-            top of any Purple: 3.20× with one Purple is 6.40×, and 12.80× with the bonus. Later cards in that pile stay
-            doubled. Each pile can unlock on its own. Red wipes it.
+            <strong>STACK BONUS ×{FULL_STACK_FACTOR}</strong> at {FULL_STACK_COUNT} cards, then{" "}
+            <strong>STACK ×{SUPER_STACK_FACTOR}</strong> at {SUPER_STACK_COUNT} cards. These are total multipliers: at 20
+            cards the ×{FULL_STACK_FACTOR} becomes ×{SUPER_STACK_FACTOR}. It does not stack into ×
+            {FULL_STACK_FACTOR * SUPER_STACK_FACTOR}. Green, Blue, Gold and Grey count. Purple, Red and +1 PACK do not.
+            Each pile keeps its own progress across every pack of the round. A later card uses the tier already open. 21
+            or more adds nothing further. Purple multiplies on top: 3.20× with one Purple is 6.40×, 12.80× at 10 cards,
+            and 25.60× at 20. A pile of only Greys stays 0× until a value card joins, and that card takes the tier. Red
+            wipes it.
           </li>
           <li>
             <strong>+1 PACK</strong> tucks a bonus pack in under the current one. Its cards join the same piles,

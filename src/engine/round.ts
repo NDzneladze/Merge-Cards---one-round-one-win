@@ -1,5 +1,5 @@
 import type { DemoConfig, TierRule } from "./config";
-import { DEFAULT_DIFFICULTY, FULL_STACK_COUNT, FULL_STACK_FACTOR, MICRO, configFor } from "./config";
+import { DEFAULT_DIFFICULTY, MICRO, configFor, stackMilestoneAt } from "./config";
 import { drawKind, drawValue } from "./draw";
 import { boardTotal, payoutMicros, stackTotal, valueToMicros } from "./money";
 import { createRng, type Rng } from "./rng";
@@ -69,7 +69,7 @@ export function tierFor(multiplierMicros: bigint, tiers: readonly TierRule[]): W
 }
 
 function emptyStacks(colors: readonly StackColor[]): StackState[] {
-  return colors.map((color) => ({ color, cards: [], factor: 1, fullStack: false }));
+  return colors.map((color) => ({ color, cards: [], factor: 1, stackBonusFactor: 1 }));
 }
 
 /**
@@ -145,26 +145,33 @@ export function resolveRound(input: ResolveInput): RoundResult {
   let ended = false;
 
   /**
-   * Puts a value or grey card in a pile. The 10th card of any kind unlocks
-   * Stack Bonus, once. The bonus is applied by `unlockStackBonus`, after the
-   * landing event, so that event still carries the pile's pre-bonus total.
+   * Puts a value or grey card in a pile. Crossing 10 or 20 cards awards that
+   * milestone once, after the landing event, so the landing still carries the
+   * pre-award total. The new factor replaces the old one.
    */
-  const join = (color: StackColor, card: PileCard): { target: StackState; unlocks: boolean } => {
+  const join = (color: StackColor, card: PileCard): { target: StackState; milestone: ReturnType<typeof stackMilestoneAt> } => {
     const before = stacks.find((stack) => stack.color === color)!;
     const target: StackState = { ...before, cards: [...before.cards, card] };
     stacks = stacks.map((stack) => (stack.color === color ? target : stack));
-    return { target, unlocks: !before.fullStack && target.cards.length === FULL_STACK_COUNT };
+    const milestone = stackMilestoneAt(target.cards.length);
+    return { target, milestone: milestone && milestone.factor !== before.stackBonusFactor ? milestone : undefined };
   };
 
-  const unlockStackBonus = (cardId: string, color: StackColor): void => {
-    stacks = stacks.map((stack) => (stack.color === color ? { ...stack, fullStack: true } : stack));
+  const awardStackBonus = (cardId: string, color: StackColor, milestone: { count: number; factor: number }): void => {
+    const before = stacks.find((stack) => stack.color === color)!;
+    const previousFactor = before.stackBonusFactor;
+    const beforeMicros = stackTotal(before);
+    stacks = stacks.map((stack) => (stack.color === color ? { ...stack, stackBonusFactor: milestone.factor } : stack));
     const target = stacks.find((stack) => stack.color === color)!;
     events.push({
-      type: "full_stack",
+      type: "stack_bonus",
       cardId,
       color,
-      count: FULL_STACK_COUNT,
-      factor: FULL_STACK_FACTOR,
+      count: target.cards.length,
+      threshold: milestone.count,
+      previousFactor,
+      factor: milestone.factor,
+      beforeMicros,
       stackTotalMicros: stackTotal(target),
       totalMicros: boardTotal(stacks),
     });
@@ -213,7 +220,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
           stackTotalMicros: stackTotal(joined.target),
           totalMicros: boardTotal(stacks),
         });
-        if (joined.unlocks) unlockStackBonus(card.id, color);
+        if (joined.milestone) awardStackBonus(card.id, color, joined.milestone);
         continue;
       }
 
@@ -235,7 +242,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
         continue;
       }
 
-      const { target, unlocks } = join(card.color, card);
+      const { target, milestone } = join(card.color, card);
       events.push({
         type: "stack_add",
         cardId: card.id,
@@ -243,7 +250,7 @@ export function resolveRound(input: ResolveInput): RoundResult {
         stackTotalMicros: stackTotal(target),
         totalMicros: boardTotal(stacks),
       });
-      if (unlocks) unlockStackBonus(card.id, card.color);
+      if (milestone) awardStackBonus(card.id, card.color, milestone);
     }
 
     if (ended || pending === 0) break;
@@ -274,7 +281,8 @@ export function resolveRound(input: ResolveInput): RoundResult {
     stacks,
     lostMicros,
     greyCards,
-    fullStackPiles: ended ? 0 : stacks.filter((stack) => stack.fullStack).length,
+    stackBonusPiles: ended ? 0 : stacks.filter((stack) => stack.stackBonusFactor >= 2).length,
+    superStackPiles: ended ? 0 : stacks.filter((stack) => stack.stackBonusFactor >= 4).length,
     stakeDebits: 1,
   };
 }

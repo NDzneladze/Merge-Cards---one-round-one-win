@@ -1,4 +1,4 @@
-import { FULL_STACK_COUNT, MICRO } from "../engine/config";
+import { FULL_STACK_COUNT, MICRO, SUPER_STACK_COUNT } from "../engine/config";
 import { formatMultiplier } from "../engine/money";
 import { STACK_COLORS, type Card, type Difficulty, type RoundEvent, type RoundResult, type StackColor, type WinTier } from "../engine/types";
 
@@ -32,11 +32,14 @@ export type Step =
     }
   | { kind: "grey"; cardId: string; color: StackColor; count: number; stackTotalMicros: bigint; totalMicros: bigint }
   | {
-      kind: "full_stack";
+      kind: "stack_bonus";
       cardId: string;
       color: StackColor;
       count: number;
+      threshold: number;
+      previousFactor: number;
       factor: number;
+      beforeMicros: bigint;
       stackTotalMicros: bigint;
       totalMicros: bigint;
     }
@@ -75,13 +78,16 @@ export function buildTimeline(events: readonly RoundEvent[]): Step[] {
         });
         break;
       }
-      case "full_stack":
+      case "stack_bonus":
         steps.push({
-          kind: "full_stack",
+          kind: "stack_bonus",
           cardId: event.cardId,
           color: event.color,
           count: event.count,
+          threshold: event.threshold,
+          previousFactor: event.previousFactor,
           factor: event.factor,
+          beforeMicros: event.beforeMicros,
           stackTotalMicros: event.stackTotalMicros,
           totalMicros: event.totalMicros,
         });
@@ -147,13 +153,15 @@ export type StackView = {
   totalMicros: bigint;
   /** Changes whenever a purple lands so the UI can replay the boost flash. */
   boostKey: string | null;
-  /** True once this pile's 10th card (value or grey) has unlocked the one-shot Stack Bonus ×2. */
-  fullStack: boolean;
-  /** Changes when the bonus lands so the ribbon can replay. */
-  fullStackKey: string | null;
-  /** Pile total just before the bonus doubled it. The UI counts up from here. */
+  /** Total stack factor: 1, 2 (from 10 cards) or 4 (from 20 cards). */
+  stackBonusFactor: number;
+  /** Changes when a milestone lands so the ribbon can replay. */
+  stackBonusKey: string | null;
+  /** Factor this award replaced. 1 at the 10th card, 2 at the 20th. */
+  bonusFromFactor: number | null;
+  /** Pile total just before this award. The UI counts up from here. */
   preBonusMicros: bigint | null;
-  /** True only for the step on which the Stack Bonus landed. Drives the ribbon and the count-up. */
+  /** True only for the step on which a milestone landed. Drives the ribbon and the count-up. */
   bonusHot: boolean;
   /** True for the step on which a card landed or a boost hit. */
   hot: boolean;
@@ -216,8 +224,9 @@ function emptyStacks(colors: readonly StackColor[]): Record<StackColor, StackVie
       factor: 1,
       totalMicros: 0n,
       boostKey: null,
-      fullStack: false,
-      fullStackKey: null,
+      stackBonusFactor: 1,
+      stackBonusKey: null,
+      bonusFromFactor: null,
       preBonusMicros: null,
       bonusHot: false,
       hot: false,
@@ -264,9 +273,22 @@ export function describeCard(card: Card): string {
   return "Red";
 }
 
-/** " · 8/10" while a pile is still building toward its Stack Bonus. */
-function progressNote(unlocked: boolean, count: number): string {
-  return unlocked || count >= FULL_STACK_COUNT ? "" : ` · ${count}/${FULL_STACK_COUNT}`;
+/**
+ * Progress toward the next milestone. The card that crosses 10 or 20 still
+ * shows 10/10 or 20/20, so a grey trigger reads as a count, not a prize.
+ */
+function progressNote(factor: number, count: number): string {
+  if (factor >= 4 || count > SUPER_STACK_COUNT) return "";
+  if (count === SUPER_STACK_COUNT) return ` · ${count}/${SUPER_STACK_COUNT}`;
+  if (factor >= 2 || count > FULL_STACK_COUNT) return ` · ${count}/${SUPER_STACK_COUNT}`;
+  return ` · ${count}/${FULL_STACK_COUNT}`;
+}
+
+/** A grey pays nothing. Crossing a milestone is the whole point of that card. */
+function greyCaption(color: string, count: number, factor: number): string {
+  if (factor < 2 && count === FULL_STACK_COUNT) return `Empty 0× → ${count}/${FULL_STACK_COUNT} · Stack ×2`;
+  if (factor < 4 && count === SUPER_STACK_COUNT) return `Empty 0× → ${count}/${SUPER_STACK_COUNT} · Stack ×4`;
+  return `Empty 0× joins the ${color} stack${progressNote(factor, count)}`;
 }
 
 function settleTransients(stacks: Record<StackColor, StackView>): Record<StackColor, StackView> {
@@ -355,7 +377,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
         },
         totalMicros: step.totalMicros,
         burst: { id: step.cardId, text: `+${formatMultiplier(valueMicros)}`, tone: "value", color: step.color },
-        caption: `${labelColor(step.color)} stack ${formatMultiplier(step.stackTotalMicros)}${progressNote(stack.fullStack, stack.cards.length + 1)}`,
+        caption: `${labelColor(step.color)} stack ${formatMultiplier(step.stackTotalMicros)}${progressNote(stack.stackBonusFactor, stack.cards.length + 1)}`,
       };
     }
     case "boost": {
@@ -397,11 +419,13 @@ export function applyStep(previous: Scene, step: Step): Scene {
         },
         totalMicros: step.totalMicros,
         burst: { id: step.cardId, text: "0×", tone: "grey", color: step.color },
-        caption: `Empty 0× joins the ${step.color} stack${progressNote(stack.fullStack, step.count)}`,
+        caption: greyCaption(step.color, step.count, stack.stackBonusFactor),
       };
     }
-    case "full_stack": {
+    case "stack_bonus": {
       const stack = state.stacks[step.color];
+      const superTier = step.factor >= 4;
+      const same = stack.totalMicros === step.stackTotalMicros;
       return {
         ...state,
         stacks: {
@@ -409,16 +433,24 @@ export function applyStep(previous: Scene, step: Step): Scene {
           [step.color]: {
             ...stack,
             hot: true,
-            fullStack: true,
-            fullStackKey: step.cardId,
+            stackBonusFactor: step.factor,
+            stackBonusKey: step.cardId,
+            bonusFromFactor: step.previousFactor,
             preBonusMicros: stack.totalMicros,
             bonusHot: true,
             totalMicros: step.stackTotalMicros,
           },
         },
         totalMicros: step.totalMicros,
-        burst: { id: `${step.cardId}-stack`, text: `STACK BONUS ×${step.factor}`, tone: "stack", color: step.color },
-        caption: `${labelColor(step.color)} stack bonus ×${step.factor} · ${formatMultiplier(stack.totalMicros)} → ${formatMultiplier(step.stackTotalMicros)}`,
+        burst: {
+          id: `${step.cardId}-stack`,
+          text: superTier ? `SUPER STACK ×${step.factor}` : `STACK BONUS ×${step.factor}`,
+          tone: "stack",
+          color: step.color,
+        },
+        caption: same
+          ? `${labelColor(step.color)} stack ×${step.factor} unlocked · still ${formatMultiplier(step.stackTotalMicros)} until a value card`
+          : `${labelColor(step.color)} ${superTier ? "super stack" : "stack bonus"} ×${step.factor} · ${formatMultiplier(stack.totalMicros)} → ${formatMultiplier(step.stackTotalMicros)}`,
       };
     }
     case "bust_strike":
@@ -444,7 +476,7 @@ export function applyStep(previous: Scene, step: Step): Scene {
         stacks[color] = {
           ...state.stacks[color],
           hot: false,
-          fullStack: false,
+          stackBonusFactor: 1,
           cards: state.stacks[color].cards.map((card) => ({ ...card, state: "dying" })),
         };
       }

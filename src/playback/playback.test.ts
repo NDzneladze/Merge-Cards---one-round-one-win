@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FIXTURES } from "../fixtures";
 import { resolveRound } from "../engine/round";
 import type { ScriptedDraw } from "../engine/types";
 import { applyStep, buildTimeline, initialScene, liveCardIds, reduceEvents, reduceSteps } from "./scene";
@@ -116,7 +117,7 @@ describe("scene", () => {
         expect(liveCardIds(scene)).toEqual(result.stacks.flatMap((stack) => stack.cards.map((card) => card.id)).sort());
         for (const stack of result.stacks) {
           expect(scene.stacks[stack.color].factor).toBe(stack.factor);
-          expect(scene.stacks[stack.color].fullStack).toBe(stack.fullStack);
+          expect(scene.stacks[stack.color].stackBonusFactor).toBe(stack.stackBonusFactor);
         }
       }
     }
@@ -325,21 +326,21 @@ describe("scene", () => {
       script: [extra, g(0.5), g(0.4), greyTo("green"), g(0.3), g(0.5), g(0.4), g(0.3), g(0.4), g(0.4), purple, greyTo("green")],
     });
     const steps = buildTimeline(result.events);
-    const bonusIndex = steps.findIndex((step) => step.kind === "full_stack");
+    const bonusIndex = steps.findIndex((step) => step.kind === "stack_bonus");
     expect(steps[bonusIndex - 1]).toMatchObject({ kind: "grey", color: "green", count: 10 });
     const before = reduceSteps(steps.slice(0, bonusIndex));
     // 3.20× of greens, purple ×2 = 6.40×. The grey has landed and the bonus has not.
     expect(before.stacks.green.cards).toHaveLength(10);
     expect(before.stacks.green.cards.filter((card) => card.kind === "grey")).toHaveLength(2);
-    expect(before.stacks.green).toMatchObject({ factor: 2, fullStack: false, bonusHot: false, totalMicros: 6_400_000n });
+    expect(before.stacks.green).toMatchObject({ factor: 2, stackBonusFactor: 1, bonusHot: false, totalMicros: 6_400_000n });
     const bonus = reduceSteps(steps.slice(0, bonusIndex + 1));
-    expect(bonus.stacks.green).toMatchObject({ fullStack: true, bonusHot: true, preBonusMicros: 6_400_000n, totalMicros: 12_800_000n });
+    expect(bonus.stacks.green).toMatchObject({ stackBonusFactor: 2, bonusHot: true, preBonusMicros: 6_400_000n, totalMicros: 12_800_000n });
     expect(bonus.totalMicros).toBe(12_800_000n);
     expect(bonus.burst).toMatchObject({ tone: "stack", text: "STACK BONUS ×2", color: "green" });
     expect(bonus.caption).toMatch(/Green stack bonus ×2 · 6\.40× → 12\.80×/);
     // The ribbon belongs to that one step. The bonus itself stays.
     const after = reduceSteps(steps.slice(0, bonusIndex + 2));
-    expect(after.stacks.green).toMatchObject({ fullStack: true, bonusHot: false, totalMicros: 12_800_000n });
+    expect(after.stacks.green).toMatchObject({ stackBonusFactor: 2, bonusHot: false, totalMicros: 12_800_000n });
     expect(reduceSteps(steps).finalMicros).toBe(12_800_000n);
   });
 
@@ -367,25 +368,52 @@ describe("scene", () => {
       script: [extra, g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.1), g(0.2)],
     });
     const steps = buildTimeline(result.events);
-    const sealIndex = steps.findIndex((step) => step.kind === "full_stack");
+    const sealIndex = steps.findIndex((step) => step.kind === "stack_bonus");
     expect(sealIndex).toBeGreaterThan(0);
-    expect(steps.filter((step) => step.kind === "full_stack")).toHaveLength(1);
+    expect(steps.filter((step) => step.kind === "stack_bonus")).toHaveLength(1);
     const before = reduceSteps(steps.slice(0, sealIndex));
     expect(before.stacks.green.cards).toHaveLength(10);
-    expect(before.stacks.green.fullStack).toBe(false);
+    expect(before.stacks.green.stackBonusFactor).toBe(1);
     // The 10th card has landed at its own value. The doubling is the next step.
     expect(before.stacks.green.totalMicros).toBe(1_000_000n);
     const sealed = reduceSteps(steps.slice(0, sealIndex + 1));
-    expect(sealed.stacks.green.fullStack).toBe(true);
-    expect(sealed.stacks.green.fullStackKey).toBe(sealed.burst?.id.replace(/-stack$/, ""));
+    expect(sealed.stacks.green.stackBonusFactor).toBe(2);
+    expect(sealed.stacks.green.stackBonusKey).toBe(sealed.burst?.id.replace(/-stack$/, ""));
     expect(sealed.burst).toMatchObject({ tone: "stack", text: "STACK BONUS ×2", color: "green" });
     expect(sealed.stacks.green.preBonusMicros).toBe(1_000_000n);
     expect(sealed.stacks.green.totalMicros).toBe(2_000_000n);
-    expect(delayFor("full_stack")).toBeGreaterThanOrEqual(600);
+    expect(delayFor("stack_bonus")).toBeGreaterThanOrEqual(600);
     const settled = reduceSteps(steps);
-    expect(settled.stacks.green.fullStack).toBe(true);
+    expect(settled.stacks.green.stackBonusFactor).toBe(2);
     expect(settled.stacks.green.cards).toHaveLength(11);
     expect(settled.finalMicros).toBe(2_400_000n);
     expect(settled.flyer).toBeNull();
+  });
+
+  it("reads a grey 20th card as an empty card, then upgrades Stack ×2 to Super Stack ×4", () => {
+    const result = resolveRound({
+      seed: FIXTURES.stack20grey.seed,
+      stake: 1,
+      difficulty: "easy",
+      script: FIXTURES.stack20grey.script,
+    });
+    const steps = buildTimeline(result.events);
+    const awards = steps.flatMap((step, index) => (step.kind === "stack_bonus" ? [index] : []));
+    expect(awards).toHaveLength(2);
+    const tenth = reduceSteps(steps.slice(0, awards[0]!));
+    expect(tenth.caption).toMatch(/Empty 0× → 10\/10 · Stack ×2/);
+    expect(tenth.stacks.green.totalMicros).toBe(6_400_000n);
+    const timesTwo = reduceSteps(steps.slice(0, awards[0]! + 1));
+    expect(timesTwo.burst).toMatchObject({ text: "STACK BONUS ×2", tone: "stack" });
+    expect(timesTwo.stacks.green).toMatchObject({ stackBonusFactor: 2, bonusFromFactor: 1, totalMicros: 12_800_000n });
+    const twentieth = reduceSteps(steps.slice(0, awards[1]!));
+    expect(twentieth.caption).toMatch(/Empty 0× → 20\/20 · Stack ×4/);
+    expect(twentieth.burst?.text).toBe("0×");
+    expect(twentieth.stacks.green.stackBonusFactor).toBe(2);
+    const timesFour = reduceSteps(steps.slice(0, awards[1]! + 1));
+    expect(timesFour.burst).toMatchObject({ text: "SUPER STACK ×4", tone: "stack", color: "green" });
+    expect(timesFour.caption).toMatch(/super stack ×4 · 12\.80× → 25\.60×/);
+    expect(timesFour.stacks.green).toMatchObject({ stackBonusFactor: 4, bonusFromFactor: 2, preBonusMicros: 12_800_000n, totalMicros: 25_600_000n });
+    expect(reduceSteps(steps).finalMicros).toBe(25_600_000n);
   });
 });

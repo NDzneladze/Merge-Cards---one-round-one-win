@@ -22,8 +22,8 @@ export const LEGACY_1X_MS: Record<Step["kind"], number> = {
   settle: 90,
   /** A grey lands in its pile like a value card, with a moment to read the 0×. */
   grey: 120,
-  /** One-shot Stack Bonus ×2. Held long enough to read the ribbon and the doubled total. */
-  full_stack: 1500,
+  /** Stack ×2 at 10 cards, and the ×4 upgrade at 20. Held long enough to read the ribbon. */
+  stack_bonus: 1500,
 };
 
 /** Former 2×. Gameplay, flight, and the celebration all use this scale. */

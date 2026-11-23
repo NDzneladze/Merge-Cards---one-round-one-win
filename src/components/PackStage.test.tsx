@@ -148,7 +148,7 @@ describe("pack opening presentation", () => {
   it("shows n/10 while a pile builds, then lands STACK BONUS ×2 once and keeps a STACK ×2 badge", async () => {
     const stackScript: ScriptedDraw[] = [extra, g(0.5), g(0.4), greyTo("green"), g(0.3), g(0.5), g(0.4), g(0.3), g(0.4), g(0.4), purple, greyTo("green")];
     const stackSteps = buildTimeline(resolveRound({ seed: "vis-stack", stake: 1, script: stackScript }).events);
-    const bonusAt = stackSteps.findIndex((step) => step.kind === "full_stack");
+    const bonusAt = stackSteps.findIndex((step) => step.kind === "stack_bonus");
 
     const errors: unknown[] = [];
     const spy = vi.spyOn(console, "error").mockImplementation((...args) => void errors.push(args[0]));
@@ -159,7 +159,8 @@ describe("pack opening presentation", () => {
     const { rerender } = render(<PackStage scene={reduceSteps(stackSteps.slice(0, nine + 1))} result={null} roundKey="stack-1" settled={false} />);
     expect(screen.getByTestId("progress-green")).toHaveTextContent("9/10");
     expect(screen.getByTestId("progress-green")).toHaveClass("is-near");
-    expect(screen.getByTestId("progress-green").querySelectorAll(".pile-pips i.is-on")).toHaveLength(9);
+    expect(screen.getByTestId("goal10-green")).toHaveTextContent("10→×2");
+    expect(screen.getByTestId("goal20-green")).toHaveTextContent("20→×4");
     expect(screen.queryByTestId("fullstack-green")).toBeNull();
     expect(screen.queryByTestId("stack-bonus-green")).toBeNull();
     expect(screen.getByTestId("stack-green-total")).toHaveAttribute("data-total", "6.40×");
@@ -180,7 +181,8 @@ describe("pack opening presentation", () => {
     expect(screen.getByTestId("fullstack-green")).toHaveTextContent(/^stack ×2$/i);
     expect(screen.getAllByTestId("fullstack-green")).toHaveLength(1);
     expect(screen.getByTestId("chip-green")).toHaveTextContent("×2");
-    expect(screen.queryByTestId("progress-green")).toBeNull();
+    expect(screen.getByTestId("progress-green")).toHaveTextContent("10/20");
+    expect(screen.getByTestId("goal20-green")).toHaveTextContent("20→×4");
     expect(screen.getByTestId("count-green")).toHaveTextContent("10 CARDS");
     expect(screen.getByTestId("stack-green-total")).toHaveAttribute("data-total", "12.80×");
     // The figure counts up from the old total. Its first frame is 6.40×, not a flash of 12.80×.
@@ -197,7 +199,10 @@ describe("pack opening presentation", () => {
     expect(screen.queryByTestId("stack-bonus-green")).toBeNull();
     expect(screen.getByTestId("fullstack-green")).toHaveTextContent(/stack ×2/i);
     expect(screen.getByTestId("stack-green-total")).toHaveTextContent("12.80×");
-    expect(screen.getByTestId("pile-green")).toHaveAttribute("aria-label", "Green pile, 10 cards, total 12.80×, Stack Bonus ×2");
+    expect(screen.getByTestId("pile-green")).toHaveAttribute(
+      "aria-label",
+      "Green pile, 10 cards, total 12.80×, Stack Bonus ×2, next 20 cards ×4",
+    );
   });
 
   it("sends the +1 PACK card under the active pack as a sealed pack, then stacks it there", () => {
@@ -259,8 +264,8 @@ describe("pack opening presentation", () => {
       ...base.stacks.green,
       cards,
       totalMicros: 7_900_000n,
-      fullStack: true,
-      fullStackKey: "seal",
+      stackBonusFactor: 2,
+      stackBonusKey: "seal",
     };
     const scene = {
       ...base,
@@ -276,6 +281,8 @@ describe("pack opening presentation", () => {
     expect(pile.querySelectorAll(".stack-card.is-buried")).toHaveLength(27 - VISIBLE_FACES);
     expect(screen.getByTestId("thickness-green")).toBeInTheDocument();
     expect(screen.getByTestId("count-green")).toHaveTextContent("27 CARDS");
+    expect(screen.getByTestId("progress-green")).toHaveTextContent("20/20");
+    expect(screen.getByTestId("goal20-green")).toHaveTextContent("20→×4");
     expect(screen.getByTestId("stack-green-total")).toHaveTextContent("7.90×");
     const front = pile.querySelectorAll(".stack-card")[26];
     expect(front?.querySelector(".card-art .hero-green")).toBeTruthy();

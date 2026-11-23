@@ -1,4 +1,4 @@
-import { FULL_STACK_FACTOR, MICRO } from "./config";
+import { MICRO } from "./config";
 import type { StackState } from "./types";
 
 export function stackSum(stack: Pick<StackState, "cards">): bigint {
@@ -6,12 +6,12 @@ export function stackSum(stack: Pick<StackState, "cards">): bigint {
 }
 
 /**
- * pile = sum(value cards) × purpleFactor × (fullStack ? 2 : 1)
- * purpleFactor is 2^purpleBoostCount. Grey cards in the pile add 0. Stack Bonus (fullStack) does not change the card count.
+ * pile = sum(value cards) × purpleFactor × stackBonusFactor
+ * purpleFactor is 2^purpleBoostCount. stackBonusFactor is the total tier: 1, 2 or 4.
+ * Grey cards add 0. The tier is applied once, so ×2 then ×4 is ×4, never ×8.
  */
 export function stackTotal(stack: StackState): bigint {
-  const stackBonus = stack.fullStack ? BigInt(FULL_STACK_FACTOR) : 1n;
-  return stackSum(stack) * BigInt(stack.factor) * stackBonus;
+  return stackSum(stack) * BigInt(stack.factor) * BigInt(stack.stackBonusFactor);
 }
 
 export function boardTotal(stacks: readonly StackState[]): bigint {
