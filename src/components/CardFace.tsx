@@ -93,7 +93,7 @@ function CardBody({ card }: { card: Card }) {
     <>
       <Corner value="STOP" mark="red" />
       <div className="card-center">
-        <Mark tone="red" className="card-watermark" />
+        <Skull className="card-watermark" />
         <strong className="card-value">STOP</strong>
         <span className="card-kind">0× bust</span>
       </div>
@@ -104,9 +104,9 @@ function CardBody({ card }: { card: Card }) {
 
 function Corner({ value, tone, mark, foot = false }: { value: string; tone?: StackColor; mark?: "purple" | "extra" | "red"; foot?: boolean }) {
   return (
-    <div className={`card-corner ${foot ? "is-foot" : ""}`}>
+    <div className={`card-corner ${foot ? "is-foot" : ""} ${mark === "red" ? "is-plain" : ""}`}>
       <span className="card-corner-value">{value}</span>
-      <Mark tone={tone ?? mark ?? "green"} className="card-pip" />
+      {mark === "red" ? null : <Mark tone={tone ?? mark ?? "green"} className="card-pip" />}
     </div>
   );
 }
@@ -118,7 +118,7 @@ export function Mark({ tone, className = "" }: { tone: MarkTone; className?: str
   if (tone === "gold") return <Crown className={className} />;
   if (tone === "purple") return <Star className={className} />;
   if (tone === "extra") return <Ticket className={className} />;
-  if (tone === "red") return <Stop className={className} />;
+  if (tone === "red") return <Skull className={className} />;
   return <Gem className={className} />;
 }
 
@@ -169,11 +169,18 @@ export function Ticket({ className = "" }: { className?: string }) {
   );
 }
 
-export function Stop({ className = "" }: { className?: string }) {
+/** One danger mark for the red card. No cross, so it cannot be read as a close button. */
+export function Skull({ className = "" }: { className?: string }) {
   return (
-    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path fill="#3a0712" d="M8.2 2.6h7.6L21.4 8.2v7.6l-5.6 5.6H8.2L2.6 15.8V8.2L8.2 2.6Z" />
-      <path fill="none" stroke="#fff6f6" strokeWidth="2.2" strokeLinecap="round" d="M8 8l8 8M16 8l-8 8" />
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" data-mark="skull" aria-hidden="true" focusable="false">
+      <path
+        fill="currentColor"
+        d="M12 1.6C7.4 1.6 3.9 4.9 3.9 9.1c0 2.5 1.2 4.4 2.8 5.6v2.2c0 .7.6 1.3 1.3 1.3h1.5v2.2h2.2v-2.2h.6v2.2h2.2v-2.2h1.5c.7 0 1.3-.6 1.3-1.3v-2.2c1.6-1.2 2.8-3.1 2.8-5.6 0-4.2-3.5-7.5-8.1-7.5Z"
+      />
+      <circle cx="8.7" cy="10.3" r="1.55" fill="#3a0712" />
+      <circle cx="15.3" cy="10.3" r="1.55" fill="#3a0712" />
+      <path fill="#3a0712" d="M10.4 14h3.2v1.55c0 .45-.35.75-.85.75h-1.5c-.5 0-.85-.3-.85-.75V14Z" />
+      <path fill="currentColor" d="M8.7 18.35h1.45v1.45H8.7Zm2.65 0h1.35v1.45h-1.35Zm2.5 0h1.45v1.45h-1.45Z" />
     </svg>
   );
 }

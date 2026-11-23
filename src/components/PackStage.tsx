@@ -2,15 +2,14 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { RoundResult, StackColor } from "../engine/types";
 import { formatMicros, formatMultiplier } from "../engine/money";
 import type { Scene } from "../playback/scene";
-import type { PlaybackSpeed } from "../playback/timing";
-import { speedFactor } from "../playback/timing";
-import { CardBack, CardFace } from "./CardFace";
+import { PLAYBACK_SCALE } from "../playback/timing";
 import { CardBoard } from "./CardBoard";
+import { CardBack, CardFace } from "./CardFace";
+import { PackArt } from "./PackArt";
 import { ResultOverlay } from "./ResultOverlay";
 
 type Props = {
   scene: Scene;
-  speed: PlaybackSpeed;
   result: RoundResult | null;
   roundKey: string;
   settled: boolean;
@@ -24,10 +23,10 @@ type Flight = {
   ty: number;
 };
 
-/** Most waiting boosters drawn as separate sealed packs; the counter carries the rest. */
-const BOOSTER_LAYERS = 3;
+/** Physical boosters drawn under the active pack. A +N chip carries any further packs. */
+const BOOSTER_LAYERS = 2;
 
-export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
+export function PackStage({ scene, result, roundKey, settled }: Props) {
   const stageRef = useRef<HTMLElement>(null);
   const mouthRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
@@ -41,27 +40,50 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
 
   useLayoutEffect(() => {
     const stage = stageRef.current;
-    if (!stage) return;
+    const app = stage?.closest<HTMLElement>(".app");
+    if (!stage || !app) return;
     const fit = () => {
-      const width = stage.clientWidth;
+      const viewport = document.documentElement.clientWidth;
       const height = stage.clientHeight;
-      if (width < 80 || height < 80) return;
+      if (viewport < 80 || height < 80) return;
       const hud = stage.querySelector<HTMLElement>(".hud")?.offsetHeight ?? 60;
       const caption = stage.querySelector<HTMLElement>(".caption")?.offsetHeight ?? 18;
-      const actionH = height - hud - caption - 18;
-      const columns = scene.colors.length === 2 ? 2.2 : 3.25;
-      const byWidth = (width - 28) / columns;
-      const peek = width < 560 ? 13 : 15;
-      // Tag, total, the gap, the booster lip, five peeked corners, and a few pixels so a full pile stays under the caption.
-      const fixed = 58 + 10 + 30 + peek * 5;
-      const byHeight = (actionH - fixed) / (1.4 + 1.16 * 1.02);
-      const card = Math.round(Math.max(68, Math.min(186, byWidth, byHeight)));
+      const actionH = height - hud - caption - 10;
+      const piles = scene.colors.length;
+      const short = window.innerHeight <= 780;
+      const lip = short ? 20 : viewport < 760 ? 16 : 32;
+      const peek = viewport < 760 ? 12 : 16;
+      // Tag, total, gap, two sealed-pack lips, and five peeked corners.
+      const fixed = 38 + lip * 2 + 8 + peek * 5;
+      const packHFactor = 1.42 * 0.9;
+      const byHeight = (actionH - fixed) / (1.4 + packHFactor);
+      const byWidth = (viewport - 36) / (piles === 2 ? 2.45 : 3.2);
+      const card = Math.round(Math.max(64, Math.min(232, byWidth, byHeight)));
+      const minGap = Math.round(Math.min(22, Math.max(8, card * 0.12)));
+      const maxGap = Math.round(card * (short ? 0.9 : 0.72));
+      const chrome = 72;
+      const span = (gap: number) => card * piles + gap * Math.max(piles - 1, 0) + chrome;
+      const tight = span(minGap);
+      const roomy = span(maxGap);
+      const desktop = viewport >= 760;
+      // Stay wide enough that the stake row and title do not wrap, which
+      // would shrink the stage and collapse the cards. Tall 3-pile layouts
+      // are already wider than this floor.
+      const controlFloor = desktop ? Math.min(viewport - 12, 760) : 0;
+      const preferred = Math.min(viewport - 8, Math.max(roomy, controlFloor));
+      const frame = desktop ? Math.min(viewport - 8, Math.max(tight, preferred)) : viewport;
+      const spread = Math.max(0, frame - chrome - card * piles);
+      const gap = piles > 1 ? Math.min(maxGap, Math.max(minGap, Math.round(spread / (piles - 1)))) : 0;
+      app.style.maxWidth = `${Math.round(frame)}px`;
       stage.style.setProperty("--card-w", `${card}px`);
       stage.style.setProperty("--peek", `${peek}px`);
+      stage.style.setProperty("--lip", `${lip}px`);
+      stage.style.setProperty("--gap", `${gap}px`);
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(stage);
+    observer.observe(document.documentElement);
     return () => observer.disconnect();
   }, [scene.colors.length]);
 
@@ -100,7 +122,6 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
     setFlight({ key: flyerKey, x, y, tx, ty });
   }, [flyer, flyerKey]);
 
-  const anim = String(Math.max(speedFactor(speed), 0.01));
   const dead = scene.bustPhase !== "none";
   const idle = scene.status === "idle";
   const burst = scene.burst;
@@ -159,6 +180,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
 
   const waiting = dead ? scene.cancelledPacks : scene.pendingPacks;
   const layers = Math.min(waiting, BOOSTER_LAYERS);
+  const bonusPack = scene.packNo > 1;
 
   return (
     <section
@@ -166,7 +188,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
       className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""}`}
       data-testid="stage"
       aria-label="Game stage"
-      style={{ ["--anim" as string]: anim }}
+      style={{ ["--anim" as string]: String(PLAYBACK_SCALE) }}
     >
       <div className="hud">
         <Meter label="Pack" value={packValue} hint={packHint} testId="pack-meter" hot={burst?.tone === "extra"} />
@@ -218,37 +240,38 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
             className={`pack-stack ${waiting > 0 ? "has-boosters" : ""} ${dead && scene.cancelledPacks > 0 ? "boosters-dead" : ""}`}
             data-testid="pack-stack"
             data-waiting={waiting}
+            data-pack-count={1 + layers}
           >
-            {Array.from({ length: layers }, (_, index) => (
-              <div
-                key={`booster-${index}`}
-                className="booster"
-                style={{ ["--i" as string]: index + 1 }}
-                data-testid={`booster-${index + 1}`}
-                aria-hidden="true"
-              >
-                <span className="booster-foil" />
-                <span className="booster-crest" />
-                <span className="booster-lid" />
-              </div>
-            ))}
+            {Array.from({ length: layers }, (_, index) => {
+              const depth = index + 1;
+              return (
+                <div
+                  key={`queued-${waiting - index}`}
+                  className="booster"
+                  style={{ ["--i" as string]: String(depth) }}
+                  data-testid={`booster-${depth}`}
+                  data-depth={depth}
+                  aria-hidden="true"
+                >
+                  <PackArt bonus sealed product="Bonus pack" detail="Sealed" />
+                </div>
+              );
+            })}
             <div ref={boostersRef} className="booster-anchor" aria-hidden="true" />
-            <div key={scene.packNo} className={`pack pack-${idle ? "sealed" : scene.pack} ${scene.packNo > 1 ? "is-bonus" : ""}`} data-testid="pack">
+            <div
+              key={scene.packNo}
+              className={`pack pack-${idle ? "sealed" : scene.pack} ${bonusPack ? "is-bonus" : ""}`}
+              data-testid="pack"
+              aria-label={bonusPack ? "Rainbet bonus pack" : "Rainbet merge pack"}
+            >
               <div className="pack-glow" />
-              <div ref={mouthRef} className="pack-mouth">
-                {Array.from({ length: scene.cardsLeftInPack }, (_, index) => (
-                  <CardBack key={index} size="stack" className={`inside inside-${index}`} />
-                ))}
-              </div>
-              <div className="pack-lid">
-                <span>{scene.packNo > 1 ? "Bonus Pack" : "Merge Pack"}</span>
-              </div>
-              <div className="pack-body">
-                <span className="pack-crest" aria-hidden="true" />
-                <span className="pack-band" />
-                <strong>{multiPack && scene.packNo > 0 ? `PACK ${scene.packNo}` : "PACK"}</strong>
-                <em>{idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}</em>
-              </div>
+              <PackArt
+                bonus={bonusPack}
+                product={bonusPack ? "Bonus pack" : "Merge pack"}
+                detail={idle ? `${scene.cardsInPack} cards` : finalShown ? "empty" : `${scene.cardsLeftInPack} left`}
+                cardsLeft={scene.cardsLeftInPack}
+                mouthRef={mouthRef}
+              />
             </div>
             {waiting > 0 ? (
               <span
@@ -297,7 +320,7 @@ export function PackStage({ scene, speed, result, roundKey, settled }: Props) {
 
       {scene.bustPhase === "strike" || scene.bustPhase === "wipe" ? <div className="red-flash" aria-hidden="true" /> : null}
 
-      {result && settled ? <ResultOverlay result={result} roundKey={roundKey} speed={speed} /> : null}
+      {result && settled ? <ResultOverlay result={result} roundKey={roundKey} /> : null}
     </section>
   );
 }

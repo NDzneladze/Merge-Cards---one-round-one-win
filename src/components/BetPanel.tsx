@@ -2,8 +2,6 @@ import { DIFFICULTIES, DIFFICULTY_ORDER, STAKE_PRESETS } from "../engine/config"
 import { FEATURED_SEEDS, type FeaturedSeed } from "../engine/featured";
 import type { Difficulty } from "../engine/types";
 import { labelColor } from "../playback/scene";
-import type { PlaybackSpeed } from "../playback/timing";
-import { PLAYBACK_SPEEDS } from "../playback/timing";
 
 type Props = {
   stake: number;
@@ -11,22 +9,14 @@ type Props = {
   playing: boolean;
   canPlay: boolean;
   broke: boolean;
-  speed: PlaybackSpeed;
   seed: string;
   difficulty: Difficulty;
   onStake: (stake: number) => void;
   onPlay: () => void;
-  onSpeed: (speed: PlaybackSpeed) => void;
   onSeed: (seed: string) => void;
   onDifficulty: (difficulty: Difficulty) => void;
   onExample: (example: FeaturedSeed) => void;
   onRefill: () => void;
-};
-
-const SPEED_LABEL: Record<PlaybackSpeed, string> = {
-  "1x": "1×",
-  "2x": "2×",
-  instant: "Instant",
 };
 
 /** Compact control bar under the stage. The scene above stays the focus. */
@@ -94,24 +84,6 @@ export function BetPanel(props: Props) {
               Refill demo credits
             </button>
           ) : null}
-        </div>
-
-        <div className="speed-block">
-          <span className="field-label">Speed</span>
-          <div className="speed-row" role="group" aria-label="Playback speed">
-            {PLAYBACK_SPEEDS.map((speed) => (
-              <button
-                key={speed}
-                type="button"
-                data-testid={`speed-${speed}`}
-                aria-pressed={props.speed === speed}
-                onClick={() => props.onSpeed(speed)}
-              >
-                {SPEED_LABEL[speed]}
-              </button>
-            ))}
-          </div>
-          <small>Animation only. The deal is already decided.</small>
         </div>
       </div>
 
