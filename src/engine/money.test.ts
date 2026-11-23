@@ -22,6 +22,14 @@ describe("fixed-point money", () => {
     expect(stackTotal(stacked)).toBe(1_840_000n);
   });
 
+  it("counts a grey card in the pile as 0×", () => {
+    const green = stack("green", [310_000n, 150_000n], 2, true);
+    const withGrey: StackState = { ...green, cards: [...green.cards, { kind: "grey", id: "x1" }, { kind: "grey", id: "x2" }] };
+    expect(withGrey.cards).toHaveLength(4);
+    expect(stackTotal(withGrey)).toBe(stackTotal(green));
+    expect(stackTotal({ color: "blue", factor: 4, fullStack: true, cards: [{ kind: "grey", id: "x3" }] })).toBe(0n);
+  });
+
   it("rounds display half away from zero at the cent", () => {
     expect(formatMicros(10_000n)).toBe("0.01");
     expect(formatMicros(14_999n)).toBe("0.01");

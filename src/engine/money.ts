@@ -2,12 +2,12 @@ import { FULL_STACK_FACTOR, MICRO } from "./config";
 import type { StackState } from "./types";
 
 export function stackSum(stack: Pick<StackState, "cards">): bigint {
-  return stack.cards.reduce<bigint>((sum, card) => sum + card.valueMicros, 0n);
+  return stack.cards.reduce<bigint>((sum, card) => (card.kind === "value" ? sum + card.valueMicros : sum), 0n);
 }
 
 /**
  * pile = sum(value cards) × purpleFactor × (fullStack ? 2 : 1)
- * purpleFactor is 2^purpleBoostCount. Full Stack does not change the card count.
+ * purpleFactor is 2^purpleBoostCount. Grey cards in the pile add 0. Stack Bonus (fullStack) does not change the card count.
  */
 export function stackTotal(stack: StackState): bigint {
   const stackBonus = stack.fullStack ? BigInt(FULL_STACK_FACTOR) : 1n;

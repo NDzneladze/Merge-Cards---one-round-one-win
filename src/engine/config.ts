@@ -5,7 +5,7 @@ import type { CardKind, Difficulty, StackColor, WinTier } from "./types";
  * prototype knob: NOT a validated RTP, NOT certified, NOT for real money.
  * `npm run simulate` reports what the current knobs produce per difficulty.
  */
-export const DEMO_CONFIG_ID = "merge-packs-demo-v0.8";
+export const DEMO_CONFIG_ID = "merge-packs-demo-v0.10";
 
 export const MICRO = 1_000_000n;
 
@@ -25,7 +25,8 @@ export const MAX_PACKS = 6;
 export const PURPLE_FACTOR = 2;
 
 /**
- * Value cards in ONE colour pile that unlock Full Stack once per round.
+ * Cards in ONE pile that unlock Stack Bonus once per round. Green, Blue, Gold
+ * and Grey 0× cards all count; Purple, Red and +1 PACK never do.
  * The 10th card triggers it. The 11th, 20th and 30th do not trigger again.
  * Prototype rule, not an approved production bonus.
  */
@@ -138,8 +139,9 @@ export const DIFFICULTY_ORDER = ["easy", "medium", "hard"] as const satisfies re
 /**
  * Experimental v0.8 weights, per-mille, summing to 1000. NOT certified RTP.
  *
- * v0.7 weights are invalid here: Grey removes prize cards, and Full Stack
- * doubles a pile that reaches 10 value cards. Each mode has its own grey
+ * v0.7 weights are invalid here: Grey takes a slot at 0×, and Stack Bonus
+ * doubles a pile that reaches 10 cards. v0.10 keeps these weights as they are
+ * and changes the rule: a grey now sits in a pile and counts toward the 10. Each mode has its own grey
  * weight. Grey is never copied from that mode's green weight.
  *
  * Hard keeps a 29% red card (the v0.7 rate). That is the extreme-risk knob.
