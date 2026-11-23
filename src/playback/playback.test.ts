@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveRound } from "../engine/round";
 import type { ScriptedDraw } from "../engine/types";
 import { applyStep, buildTimeline, initialScene, liveCardIds, reduceEvents, reduceSteps } from "./scene";
-import { delayFor, LEGACY_1X_MS, PLAYBACK_SCALE } from "./timing";
+import { delayFor, holdBefore, LEGACY_1X_MS, PLAYBACK_SCALE, roundDuration } from "./timing";
 
 const g = (value: number): ScriptedDraw => ({ kind: "green", value });
 const b = (value: number): ScriptedDraw => ({ kind: "blue", value });
@@ -10,7 +10,7 @@ const au = (value: number): ScriptedDraw => ({ kind: "gold", value });
 const purple: ScriptedDraw = { kind: "purple" };
 const red: ScriptedDraw = { kind: "red" };
 const extra: ScriptedDraw = { kind: "extra" };
-const grey: ScriptedDraw = { kind: "grey" };
+const greyTo = (target: "green" | "blue" | "gold"): ScriptedDraw => ({ kind: "grey", target });
 
 describe("timeline", () => {
   it("expands each engine event into presentation steps in order", () => {
@@ -47,8 +47,14 @@ describe("timeline", () => {
     const result = resolveRound({ seed: "tq", stake: 1, script: [g(0.3), extra, g(0.1), g(0.1), g(0.1), g(0.1), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2)] });
     const steps = buildTimeline(result.events);
     const kinds = steps.map((step) => step.kind);
-    expect(kinds.slice(0, 9)).toEqual(["pack_enter", "pack_open", "eject", "travel", "stack", "eject", "travel", "earn", "eject"]);
-    expect(steps[6]).toMatchObject({ kind: "travel", target: "boosters" });
+    expect(kinds.slice(0, 9)).toEqual(["pack_enter", "pack_open", "eject", "travel", "stack", "eject", "tuck", "earn", "eject"]);
+    expect(steps[6]).toMatchObject({ kind: "tuck", card: { kind: "extra" } });
+    // The tuck is the one slow flight: long enough to see the card go under the pack.
+    expect(delayFor("tuck")).toBeGreaterThanOrEqual(2.5 * delayFor("travel"));
+    const tucking = reduceSteps(steps.slice(0, 7));
+    expect(tucking.flyer).toMatchObject({ phase: "travel", target: "boosters" });
+    expect(tucking.pendingPacks).toBe(0);
+    expect(tucking.caption).toMatch(/under the pack/);
     expect(steps[7]).toMatchObject({ kind: "earn", pending: 1, totalPacks: 2 });
     expect(kinds.filter((kind) => kind === "pack_enter")).toHaveLength(2);
     const second = steps.findIndex((step, index) => step.kind === "pack_enter" && index > 0);
@@ -207,11 +213,11 @@ describe("scene", () => {
     expect(firstEarn.packsTotal).toBe(2);
     expect(firstEarn.earnKey).toBe(firstEarn.burst?.id);
     expect(firstEarn.burst).toMatchObject({ tone: "extra", text: "+1 PACK" });
-    expect(firstEarn.caption).toMatch(/a bonus pack slides in below/);
+    expect(firstEarn.caption).toMatch(/a bonus pack tucks in under the pack/);
     const secondEarn = reduceSteps(steps.slice(0, earnIndexes[1]! + 1));
     expect(secondEarn.pendingPacks).toBe(2);
     expect(secondEarn.packsTotal).toBe(3);
-    expect(secondEarn.caption).toMatch(/2 bonus packs waiting below/);
+    expect(secondEarn.caption).toMatch(/2 bonus packs stacked under the pack/);
 
     const secondEnter = steps.findIndex((step) => step.kind === "pack_enter" && step.packNo === 2);
     const entering = reduceSteps(steps.slice(0, secondEnter + 1));
@@ -268,6 +274,7 @@ describe("scene", () => {
     const result = resolveRound({ seed: "pace", stake: 1, script: [g(0.3), b(1), g(0.3), g(0.3), b(1), g(0.3)] });
     const steps = buildTimeline(result.events);
     const ms = steps.reduce((sum, step) => sum + delayFor(step.kind), 0);
+    expect(roundDuration(steps)).toBe(ms - delayFor("settle"));
     const legacy = steps.reduce((sum, step) => sum + LEGACY_1X_MS[step.kind], 0);
     expect(legacy).toBeGreaterThanOrEqual(3_000);
     expect(legacy).toBeLessThanOrEqual(5_000);
@@ -279,29 +286,81 @@ describe("scene", () => {
     expect(delayFor("eject") + delayFor("travel")).toBeLessThanOrEqual(250);
   });
 
-  it("reveals a grey card and discards it without touching the prize piles", () => {
-    const result = resolveRound({ seed: "grey-play", stake: 1, script: [g(0.4), grey, b(1), g(0.1), g(0.1), g(0.1)] });
+  it("reveals a grey card, flies it to the pile the engine chose, and keeps it there at 0×", () => {
+    const result = resolveRound({ seed: "grey-play", stake: 1, script: [g(0.4), b(1), greyTo("blue"), g(0.1), g(0.1), g(0.1)] });
     const steps = buildTimeline(result.events);
     const travelIndex = steps.findIndex((step) => step.kind === "travel" && step.card.kind === "grey");
-    const travelling = reduceSteps(steps.slice(0, travelIndex + 1));
-    expect(travelling.flyer).toMatchObject({ phase: "travel", target: "discard" });
-    expect(travelling.flyer?.card.kind).toBe("grey");
-    expect(travelling.caption).toMatch(/discard/);
+    expect(steps[travelIndex - 1]).toMatchObject({ kind: "eject", card: { kind: "grey" } });
+    expect(steps[travelIndex + 1]).toMatchObject({ kind: "grey", color: "blue", count: 2, stackTotalMicros: 1_000_000n });
 
-    const discarded = reduceSteps(steps.slice(0, travelIndex + 2));
-    expect(discarded.flyer).toBeNull();
-    expect(discarded.burst).toMatchObject({ tone: "grey", text: "EMPTY" });
-    expect(discarded.stacks.green.cards).toHaveLength(1);
-    expect(discarded.stacks.blue.cards).toHaveLength(0);
-    expect(liveCardIds(discarded)).toEqual(["c0001"]);
+    const travelling = reduceSteps(steps.slice(0, travelIndex + 1));
+    expect(travelling.flyer).toMatchObject({ phase: "travel", target: "blue" });
+    expect(travelling.flyer?.card.kind).toBe("grey");
+    expect(travelling.caption).toMatch(/Empty 0× → blue stack/);
+    expect(travelling.stacks.blue.cards).toHaveLength(1);
+
+    const landed = reduceSteps(steps.slice(0, travelIndex + 2));
+    expect(landed.flyer).toBeNull();
+    expect(landed.burst).toMatchObject({ tone: "grey", text: "0×", color: "blue" });
+    expect(landed.stacks.blue.cards.map((card) => card.kind)).toEqual(["value", "grey"]);
+    expect(landed.stacks.blue.cards[1]).toMatchObject({ id: "c0003", valueMicros: 0n, state: "landing" });
+    expect(landed.stacks.blue.hot).toBe(true);
+    // 0×: neither the pile total nor the board total moves.
+    expect(landed.stacks.blue.totalMicros).toBe(1_000_000n);
+    expect(landed.totalMicros).toBe(travelling.totalMicros);
+    expect(landed.caption).toMatch(/joins the blue stack · 2\/10/);
+    expect(landed.stacks.green.cards).toHaveLength(1);
 
     const settled = reduceSteps(steps);
     expect(settled.flyer).toBeNull();
-    expect(liveCardIds(settled)).toHaveLength(5);
+    expect(liveCardIds(settled)).toHaveLength(6);
+    expect(settled.stacks.blue.cards).toHaveLength(2);
     expect(settled.status).toBe("won");
   });
 
-  it("seals a pile once on the 10th value card and keeps the bonus for the next card", () => {
+  it("lands Stack Bonus on a grey 10th card and compounds it with purple", () => {
+    const result = resolveRound({
+      seed: "sb-play",
+      stake: 1,
+      script: [extra, g(0.5), g(0.4), greyTo("green"), g(0.3), g(0.5), g(0.4), g(0.3), g(0.4), g(0.4), purple, greyTo("green")],
+    });
+    const steps = buildTimeline(result.events);
+    const bonusIndex = steps.findIndex((step) => step.kind === "full_stack");
+    expect(steps[bonusIndex - 1]).toMatchObject({ kind: "grey", color: "green", count: 10 });
+    const before = reduceSteps(steps.slice(0, bonusIndex));
+    // 3.20× of greens, purple ×2 = 6.40×. The grey has landed and the bonus has not.
+    expect(before.stacks.green.cards).toHaveLength(10);
+    expect(before.stacks.green.cards.filter((card) => card.kind === "grey")).toHaveLength(2);
+    expect(before.stacks.green).toMatchObject({ factor: 2, fullStack: false, bonusHot: false, totalMicros: 6_400_000n });
+    const bonus = reduceSteps(steps.slice(0, bonusIndex + 1));
+    expect(bonus.stacks.green).toMatchObject({ fullStack: true, bonusHot: true, preBonusMicros: 6_400_000n, totalMicros: 12_800_000n });
+    expect(bonus.totalMicros).toBe(12_800_000n);
+    expect(bonus.burst).toMatchObject({ tone: "stack", text: "STACK BONUS ×2", color: "green" });
+    expect(bonus.caption).toMatch(/Green stack bonus ×2 · 6\.40× → 12\.80×/);
+    // The ribbon belongs to that one step. The bonus itself stays.
+    const after = reduceSteps(steps.slice(0, bonusIndex + 2));
+    expect(after.stacks.green).toMatchObject({ fullStack: true, bonusHot: false, totalMicros: 12_800_000n });
+    expect(reduceSteps(steps).finalMicros).toBe(12_800_000n);
+  });
+
+  it("shows each step for its own delay, so a flight is never cut by its landing", () => {
+    const result = resolveRound({ seed: "hold", stake: 1, script: [g(0.3), extra, g(0.1), g(0.1), g(0.1), g(0.1), ...Array.from({ length: 6 }, () => g(0.2))] });
+    const steps = buildTimeline(result.events);
+    expect(holdBefore(steps, 0)).toBe(0);
+    for (let applied = 1; applied < steps.length; applied += 1) {
+      expect(holdBefore(steps, applied)).toBe(delayFor(steps[applied - 1]!.kind));
+    }
+    const travel = steps.findIndex((step) => step.kind === "travel");
+    // The step after a flight is the landing. It waits for the whole flight.
+    expect(steps[travel + 1]?.kind).toBe("stack");
+    expect(holdBefore(steps, travel + 1)).toBe(delayFor("travel"));
+    const tuck = steps.findIndex((step) => step.kind === "tuck");
+    expect(steps[tuck + 1]?.kind).toBe("earn");
+    expect(holdBefore(steps, tuck + 1)).toBe(delayFor("tuck"));
+    expect(roundDuration(steps)).toBe(steps.slice(0, -1).reduce((sum, step) => sum + delayFor(step.kind), 0));
+  });
+
+  it("unlocks Stack Bonus once on the 10th card and keeps it for the next card", () => {
     const result = resolveRound({
       seed: "fs-play",
       stake: 1,
@@ -314,11 +373,15 @@ describe("scene", () => {
     const before = reduceSteps(steps.slice(0, sealIndex));
     expect(before.stacks.green.cards).toHaveLength(10);
     expect(before.stacks.green.fullStack).toBe(false);
+    // The 10th card has landed at its own value. The doubling is the next step.
+    expect(before.stacks.green.totalMicros).toBe(1_000_000n);
     const sealed = reduceSteps(steps.slice(0, sealIndex + 1));
     expect(sealed.stacks.green.fullStack).toBe(true);
     expect(sealed.stacks.green.fullStackKey).toBe(sealed.burst?.id.replace(/-stack$/, ""));
-    expect(sealed.burst).toMatchObject({ tone: "stack", text: "FULL STACK ×2", color: "green" });
+    expect(sealed.burst).toMatchObject({ tone: "stack", text: "STACK BONUS ×2", color: "green" });
+    expect(sealed.stacks.green.preBonusMicros).toBe(1_000_000n);
     expect(sealed.stacks.green.totalMicros).toBe(2_000_000n);
+    expect(delayFor("full_stack")).toBeGreaterThanOrEqual(600);
     const settled = reduceSteps(steps);
     expect(settled.stacks.green.fullStack).toBe(true);
     expect(settled.stacks.green.cards).toHaveLength(11);

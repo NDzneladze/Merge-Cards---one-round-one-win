@@ -3,6 +3,7 @@ import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUN
 import { valueBounds } from "../engine/draw";
 import { formatMultiplier } from "../engine/money";
 import { labelColor } from "../playback/scene";
+import { LegendRows } from "./CardLegend";
 
 type Props = {
   onClose: () => void;
@@ -43,28 +44,35 @@ export function InfoModal({ onClose }: Props) {
             Close
           </button>
         </header>
+        <h3>Cards</h3>
+        <LegendRows />
+        <h3>Round</h3>
         <ul>
           <li>Pick a difficulty, set a stake, press Play. One stake opens one pack of six cards.</li>
           <li>Each card launches upward out of the pack, flips in the air and tucks into the pile of its colour. A pile is worth the sum of its cards.</li>
           <li>
-            <strong>PURPLE</strong> lands on the pile with the most value cards and multiplies it by ×{PURPLE_FACTOR}. Ties go
-            to the highest boosted total, then to the leftmost pile. Boosts stack with each other, and with Full Stack.
+            <strong>PURPLE</strong> lands on the pile with the most value cards and multiplies it by ×{PURPLE_FACTOR}. Grey
+            cards do not count for this. Ties go to the highest boosted total, then to the leftmost pile. Boosts stack
+            with each other, and with Stack Bonus.
           </li>
           <li>
-            <strong>GREY</strong> is an empty card, 0×. It uses one of the six slots, then leaves the table. It does not
-            bust, join a pile, earn a pack, or count toward Full Stack.
+            <strong>GREY</strong> is an empty card, 0×. It joins a random pile that already holds a card, or any pile if
+            the table is empty. It adds nothing to that pile's value and it is not a bust, a boost or a pack. It does
+            count as a card in the pile.
           </li>
           <li>
-            <strong>FULL STACK ×{FULL_STACK_FACTOR}</strong> happens once, when one colour pile reaches {FULL_STACK_COUNT} value
-            cards. Later cards in that pile stay doubled. A second pile can unlock on its own. Red wipes it.
+            <strong>STACK BONUS ×{FULL_STACK_FACTOR}</strong> happens once per pile, when the pile reaches {FULL_STACK_COUNT}{" "}
+            cards. Green, Blue, Gold and Grey cards count. Purple, Red and +1 PACK do not. It doubles the whole pile, on
+            top of any Purple: 3.20× with one Purple is 6.40×, and 12.80× with the bonus. Later cards in that pile stay
+            doubled. Each pile can unlock on its own. Red wipes it.
           </li>
           <li>
-            <strong>+1 PACK</strong> slides a bonus pack in under the current one. Its cards join the same piles,
+            <strong>+1 PACK</strong> tucks a bonus pack in under the current one. Its cards join the same piles,
             boosts included, and can earn further packs, up to {MAX_PACKS} packs in a round. It never appears once that
             cap is reached.
           </li>
           <li>
-            <strong>RED</strong> strikes and leaves. The whole round ends at 0×. Every pile, every Full Stack and every
+            <strong>RED</strong> strikes and leaves. The whole round ends at 0×. Every pile, every Stack Bonus and every
             waiting pack is cancelled. A round of only grey cards is a no-win 0×, not a bust.
           </li>
           <li>

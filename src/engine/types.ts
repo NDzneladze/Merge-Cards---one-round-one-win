@@ -18,13 +18,17 @@ export type GreyCard = { kind: "grey"; id: string };
 
 export type Card = ValueCard | PurpleCard | RedCard | ExtraPackCard | GreyCard;
 
+/** Every card that physically sits in a pile. Grey is in the pile at 0×. */
+export type PileCard = ValueCard | GreyCard;
+
 export type StackState = {
   color: StackColor;
-  cards: readonly ValueCard[];
+  /** Value cards and grey cards, in landing order. Purple, red and +1 PACK never join. */
+  cards: readonly PileCard[];
   /** Product of every purple boost that landed on this stack. 1 when none. Equals 2^purpleCount. */
   factor: number;
   /**
-   * True after this pile has collected `FULL_STACK_COUNT` value cards once.
+   * True after this pile has collected `FULL_STACK_COUNT` cards once, grey included.
    * Multiplies the pile by `FULL_STACK_FACTOR`. Never set twice, and cleared
    * when a red card wipes the board.
    */
@@ -84,7 +88,16 @@ export type RoundEvent =
       /** Packs opened so far plus every pack waiting. */
       totalPacks: number;
     }
-  | { type: "grey"; cardId: string }
+  | {
+      /** A grey 0× card joined a pile. It adds nothing to the sum and counts toward Stack Bonus. */
+      type: "grey";
+      cardId: string;
+      color: StackColor;
+      /** Cards in that pile after the grey landed, grey included. */
+      count: number;
+      stackTotalMicros: bigint;
+      totalMicros: bigint;
+    }
   | { type: "bust"; cardId: string; lostMicros: bigint; cancelledPacks: number }
   | { type: "round_end"; multiplierMicros: bigint; outcome: RoundOutcome; tier: WinTier };
 
@@ -93,7 +106,7 @@ export type ScriptedDraw =
   | { kind: "purple" }
   | { kind: "red" }
   | { kind: "extra" }
-  | { kind: "grey" };
+  | { kind: "grey"; /** Pile the grey joins. Drawn from the seed's routing stream when omitted. */ target?: StackColor };
 
 export type RoundResult = {
   seed: string;

@@ -8,8 +8,9 @@ export type FeaturedSeed = {
 };
 
 /**
- * Pinned demo seeds for the v0.8 weights. Outcomes are locked by tests.
- * They are illustrations, not a math sample. Grey, Full Stack and
+ * Pinned demo seeds for the v0.8 weights, replayed under the v0.10 rules
+ * (grey joins a pile and counts toward Stack Bonus). Outcomes are locked by
+ * tests. They are illustrations, not a math sample. Grey, Stack bonus and
  * Stack + purple are natural deals, not scripted hands.
  */
 export const FEATURED_SEEDS: readonly FeaturedSeed[] = [
@@ -20,6 +21,6 @@ export const FEATURED_SEEDS: readonly FeaturedSeed[] = [
   { id: "big", label: "Big win", seed: "demo-104", difficulty: "medium" },
   { id: "bust", label: "Red", seed: "demo-70", difficulty: "medium" },
   { id: "grey", label: "Grey", seed: "demo-48", difficulty: "easy" },
-  { id: "stack", label: "Full stack", seed: "demo-2", difficulty: "easy" },
+  { id: "stack", label: "Stack bonus", seed: "demo-2", difficulty: "easy" },
   { id: "stackPurple", label: "Stack + purple", seed: "demo-104", difficulty: "easy" },
 ];

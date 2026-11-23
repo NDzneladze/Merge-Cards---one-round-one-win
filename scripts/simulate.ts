@@ -1,17 +1,19 @@
 /**
- * Per-difficulty simulation of the v0.8 DEMO placeholders.
+ * Per-difficulty simulation of the DEMO placeholders under the v0.10 rules.
  *
  *   npm run simulate            # 50 000 rounds per mode
  *   npm run simulate -- 100000  # custom sample size
  *
- * Grey and Full Stack make every v0.7 sample invalid. The numbers below are
- * a demo simulation of the current knobs, not a certified RTP.
+ * The weights are the v0.8 set, unchanged. From v0.10 a grey 0× card joins a
+ * pile and counts toward Stack Bonus, so the bonus lands more often and every
+ * earlier sample is invalid. Demo simulation of the current knobs, not a
+ * certified RTP.
  */
 import { DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, GREEN_VALUES, MICRO, WIN_TIERS } from "../src/engine/config";
 import { formatMultiplier } from "../src/engine/money";
 import { resolveRound } from "../src/engine/round";
 import { buildTimeline } from "../src/playback/scene";
-import { delayFor } from "../src/playback/timing";
+import { roundDuration } from "../src/playback/timing";
 import type { Difficulty, RoundResult } from "../src/engine/types";
 
 const rounds = Number(process.argv[2] ?? 50_000);
@@ -38,6 +40,10 @@ type Stats = {
   fullStackPaid: number;
   purpleStackCombo: number;
   purpleStackPaid: number;
+  /** Rounds where a grey was the card that completed a pile's 10. */
+  greyTenth: number;
+  /** Rounds where a pile reached 10 with at least one grey among its first 10 cards. */
+  greyHelped: number;
   max: bigint;
   maxSeed: string;
   stackSeed: string;
@@ -78,6 +84,8 @@ function simulate(difficulty: Difficulty): Stats {
     fullStackPaid: 0,
     purpleStackCombo: 0,
     purpleStackPaid: 0,
+    greyTenth: 0,
+    greyHelped: 0,
     max: 0n,
     maxSeed: "",
     stackSeed: "",
@@ -109,6 +117,17 @@ function simulate(difficulty: Difficulty): Stats {
       stats.fullStackTriggered += 1;
       if (!stats.stackSeed) stats.stackSeed = seed;
     }
+    if (stacked) {
+      const greyIds = new Set(result.events.flatMap((event) => (event.type === "grey" ? [event.cardId] : [])));
+      const bonuses = result.events.filter((event) => event.type === "full_stack");
+      if (bonuses.some((event) => event.type === "full_stack" && greyIds.has(event.cardId))) stats.greyTenth += 1;
+      const helped = bonuses.some((bonus) => {
+        if (bonus.type !== "full_stack") return false;
+        const upTo = result.events.indexOf(bonus);
+        return result.events.slice(0, upTo).some((event) => event.type === "grey" && event.color === bonus.color);
+      });
+      if (helped) stats.greyHelped += 1;
+    }
     if (combo) {
       stats.purpleStackCombo += 1;
       if (!stats.purpleStackSeed) stats.purpleStackSeed = seed;
@@ -122,7 +141,7 @@ function simulate(difficulty: Difficulty): Stats {
       stats.maxSeed = seed;
     }
     if (i < 2_000) {
-      stats.durationMs += buildTimeline(result.events).reduce((sum, step) => sum + delayFor(step.kind), 0);
+      stats.durationMs += roundDuration(buildTimeline(result.events));
     }
   }
   return stats;
@@ -137,9 +156,9 @@ function percentile(sorted: number[], p: number): string {
 
 const greenTotal = GREEN_VALUES.kind === "weighted" ? GREEN_VALUES.entries.reduce((sum, e) => sum + e.weight, 0) : 0;
 const greenSmall = GREEN_VALUES.kind === "weighted" ? GREEN_VALUES.entries.filter((e) => e.valueMicros <= 200_000n).reduce((sum, e) => sum + e.weight, 0) : 0;
-console.log(`Merge Packs v0.8 demo simulation · ${rounds.toLocaleString()} rounds per mode · stake 1`);
-console.log(`Green ≤ 0.20×: ${pct(greenSmall, greenTotal)} of green cards. Full Stack at ${FULL_STACK_COUNT} value cards, once, ×2.`);
-console.log("Exploratory mean hypothesis 0.94–0.96×. NOT a validated RTP. v0.7 samples do not apply.\n");
+console.log(`Merge Packs v0.10 demo simulation · ${rounds.toLocaleString()} rounds per mode · stake 1`);
+console.log(`Green ≤ 0.20×: ${pct(greenSmall, greenTotal)} of green cards. Stack Bonus at ${FULL_STACK_COUNT} cards in one pile (value + grey), once, ×2.`);
+console.log("v0.8 weights, unchanged. NOT a validated RTP. v0.8/v0.9 samples do not apply: grey now counts toward the bonus.\n");
 
 for (const difficulty of DIFFICULTY_ORDER) {
   const mode = DIFFICULTIES[difficulty];
@@ -162,10 +181,12 @@ for (const difficulty of DIFFICULTY_ORDER) {
   console.log(`≥ ${formatMultiplier(celebrateFrom)} celebration                                 ${pct(s.celebrated)}`);
   console.log(`rounds with ≥1 bonus pack                          ${pct(s.roundsWithBonus)}   (${(s.earned / rounds).toFixed(3)} earned per round)`);
   console.log(`grey cards per round                               ${(s.greyCards / rounds).toFixed(3)}`);
-  console.log(`Full Stack triggered (incl. later bust)            ${pct(s.fullStackTriggered)}   seed ${s.stackSeed || "none"}`);
-  console.log(`Full Stack still paid at settle                    ${pct(s.fullStackPaid)}`);
-  console.log(`Purple on a Full Stack pile (incl. later bust)     ${pct(s.purpleStackCombo)}   seed ${s.purpleStackSeed || "none"}`);
-  console.log(`Purple + Full Stack still paid                     ${pct(s.purpleStackPaid)}`);
+  console.log(`Stack Bonus triggered (incl. later bust)           ${pct(s.fullStackTriggered)}   seed ${s.stackSeed || "none"}`);
+  console.log(`  … where a grey was the 10th card                 ${pct(s.greyTenth)}`);
+  console.log(`  … where the pile held a grey when it unlocked    ${pct(s.greyHelped)}`);
+  console.log(`Stack Bonus still paid at settle                   ${pct(s.fullStackPaid)}`);
+  console.log(`Purple on a Stack Bonus pile (incl. later bust)    ${pct(s.purpleStackCombo)}   seed ${s.purpleStackSeed || "none"}`);
+  console.log(`Purple + Stack Bonus still paid                    ${pct(s.purpleStackPaid)}`);
   console.log(`packs opened                                       ${packLine}`);
   console.log(`mean / max opened packs                            ${(s.openedSum / rounds).toFixed(3)} / ${s.openedMax}`);
   console.log(`percentiles p50 p90 p99 p99.9                      ${percentile(sorted, 50)} · ${percentile(sorted, 90)} · ${percentile(sorted, 99)} · ${percentile(sorted, 99.9)}`);

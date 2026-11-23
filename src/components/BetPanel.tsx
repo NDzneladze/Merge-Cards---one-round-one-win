@@ -2,6 +2,7 @@ import { DIFFICULTIES, DIFFICULTY_ORDER, STAKE_PRESETS } from "../engine/config"
 import { FEATURED_SEEDS, type FeaturedSeed } from "../engine/featured";
 import type { Difficulty } from "../engine/types";
 import { labelColor } from "../playback/scene";
+import { CardLegend } from "./CardLegend";
 
 type Props = {
   stake: number;
@@ -88,6 +89,7 @@ export function BetPanel(props: Props) {
         </div>
       </div>
 
+      <CardLegend />
       <details className="extras">
         <summary>Examples &amp; seed</summary>
         <div className="extras-body">

@@ -1,26 +1,41 @@
+import { FULL_STACK_COUNT, FULL_STACK_FACTOR, PURPLE_FACTOR } from "../engine/config";
 import { Mark } from "./CardFace";
 
 const ROWS = [
-  { tone: "green", name: "Green", note: "Small" },
-  { tone: "blue", name: "Blue", note: "Mid" },
-  { tone: "gold", name: "Gold", note: "High" },
-  { tone: "purple", name: "Purple", note: "×2" },
-  { tone: "extra", name: "+1 Pack", note: "Chain" },
-  { tone: "red", name: "Red", note: "Stop" },
-  { tone: "grey", name: "Grey", note: "0×" },
+  { tone: "green", name: "Green", note: "Small value" },
+  { tone: "blue", name: "Blue", note: "Mid value" },
+  { tone: "gold", name: "Gold", note: "High value" },
+  { tone: "grey", name: "Grey", note: "0× · joins a pile" },
+  { tone: "purple", name: "Purple", note: `×${PURPLE_FACTOR} one pile` },
+  { tone: "extra", name: "+1 Pack", note: "Extra pack" },
+  { tone: "red", name: "Red", note: "Bust · 0×" },
 ] as const;
 
-/** Narrow key. Rendered only when the side gutter is already empty. */
-export function CardLegend() {
+/** The seven card kinds. Lives in the rail and the rules, never on the felt. */
+export function LegendRows() {
   return (
-    <aside className="card-legend" aria-label="Card types">
+    <ul className="legend-rows" aria-label="Card types">
       {ROWS.map((row) => (
-        <p key={row.tone} className={`legend-row tone-${row.tone}`}>
+        <li key={row.tone} className={`legend-row tone-${row.tone}`}>
           <Mark tone={row.tone} className="legend-mark" />
           <span>{row.name}</span>
           <em>{row.note}</em>
-        </p>
+        </li>
       ))}
-    </aside>
+      <li className="legend-row legend-bonus">
+        <span className="legend-badge">Stack ×{FULL_STACK_FACTOR}</span>
+        <em>{FULL_STACK_COUNT} cards in one pile</em>
+      </li>
+    </ul>
+  );
+}
+
+/** Collapsible key for the left rail. Closed by default, so the rail stays quiet. */
+export function CardLegend() {
+  return (
+    <details className="extras legend-block" data-testid="card-legend">
+      <summary>Cards</summary>
+      <LegendRows />
+    </details>
   );
 }

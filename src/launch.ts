@@ -8,6 +8,8 @@ export type Launch = {
   script?: readonly ScriptedDraw[];
   /** "end", a step kind, "kind:nth", or a numeric step count. */
   at: string | null;
+  /** QA slow motion, 1–12. Stretches the delays and the CSS clock together. Never changes the deal. */
+  slow: number;
 };
 
 const DIFFICULTIES = new Set<Difficulty>(["easy", "medium", "hard"]);
@@ -25,6 +27,8 @@ export function readLaunch(search: string): Launch | null {
   const fixtureId = params.get("fixture");
   const seed = params.get("seed");
   const at = params.get("at");
+  const slowRaw = Number(params.get("slow"));
+  const slow = Number.isFinite(slowRaw) && slowRaw >= 1 ? Math.min(12, slowRaw) : 1;
   const rawDifficulty = params.get("difficulty");
   const difficulty: Difficulty = rawDifficulty && DIFFICULTIES.has(rawDifficulty as Difficulty) ? (rawDifficulty as Difficulty) : "medium";
   if (!fixtureId && !seed) return null;
@@ -35,10 +39,11 @@ export function readLaunch(search: string): Launch | null {
       difficulty: fixture.difficulty,
       script: fixture.script,
       at,
+      slow,
     };
   }
   if (!seed) return null;
-  return { seed, difficulty, at };
+  return { seed, difficulty, at, slow };
 }
 
 /** How many timeline steps to apply before the first paint of a launched round. */

@@ -38,7 +38,14 @@ describe("App", () => {
     expect(engine.openedPacks).toBe(2);
     render(<App />);
 
-    expect(screen.getByText(/Prototype v0.9/)).toBeInTheDocument();
+    expect(screen.getByText(/Prototype v0.10/)).toBeInTheDocument();
+    // The legend is a closed block in the rail. It is not on the table.
+    const legend = screen.getByTestId("card-legend");
+    expect(legend.closest(".controls")).toBeTruthy();
+    expect(legend).not.toHaveAttribute("open");
+    expect(legend).toHaveTextContent(/Grey/);
+    expect(legend).toHaveTextContent(/joins a pile/);
+    expect(screen.getByTestId("stage").querySelector(".legend-row")).toBeNull();
     expect(screen.getByTestId("table-shell").querySelector(".controls")).toBeTruthy();
     expect(screen.getByTestId("table-shell").querySelector("main")).toBeTruthy();
     expect(screen.getByTestId("balance")).toHaveTextContent(formatMicros(creditsToMicros(STARTING_BALANCE_CREDITS)));
@@ -58,7 +65,9 @@ describe("App", () => {
     expect(screen.getByTestId("pack-meter")).toHaveTextContent("2/2");
     expect(screen.getByTestId("pack-stack")).toHaveAttribute("data-waiting", "0");
     expect(screen.queryByTestId("booster-count")).toBeNull();
-    expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
+    expect(screen.getByTestId("win-badge")).toHaveTextContent(/^Win$/);
+    expect(screen.getByTestId("win-badge")).toHaveAttribute("aria-label", `Win ${formatMultiplier(engine.multiplierMicros)}`);
+    expect(screen.getByTestId("win-badge").closest("[data-testid=hud]")).toBeTruthy();
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(screen.queryByText(/play again/i)).toBeNull();
     // The purple from pack 1 still boosts green after the bonus pack's green cards landed.
@@ -102,15 +111,14 @@ describe("App", () => {
     expect(screen.getByTestId("difficulty-easy")).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByTestId("play-button"));
 
-    await waitFor(() => expect(screen.getByTestId("result-badge")).toHaveTextContent("0.70×"));
+    await waitFor(() => expect(screen.getByTestId("result-badge")).toHaveAttribute("aria-label", "Return · below stake 0.70×"));
     expect(screen.getByTestId("total-meter")).toHaveTextContent("0.70×");
     expect(screen.getByTestId("result-badge")).toHaveTextContent(/Return/);
-    expect(screen.getByTestId("result-badge")).toHaveTextContent("0.70×");
     expect(screen.queryByTestId("win-badge")).toBeNull();
     expect(meterOf("total-meter")).not.toHaveTextContent(/win/i);
     expect(screen.getByTestId("payout-meter")).toHaveTextContent("+7.00");
     expect(meterOf("payout-meter")).toHaveTextContent("net −3.00");
-    expect(meterOf("total-meter")).toHaveTextContent(/return · below stake/);
+    expect(meterOf("total-meter")).toHaveTextContent(/Return · below stake/);
     expect(screen.getByTestId("caption")).toHaveTextContent(/return 0\.70× · below the stake/);
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(pileColors()).toEqual(["green", "blue"]);
@@ -126,8 +134,9 @@ describe("App", () => {
     render(<App />);
     await pinSeed(user, "demo-11", "easy");
     await user.click(screen.getByTestId("play-button"));
-    await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
+    await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveAttribute("aria-label", `Win ${formatMultiplier(engine.multiplierMicros)}`));
     expect(screen.getByTestId("win-badge")).toHaveTextContent(/Win/);
+    expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros));
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(screen.queryByText(/play again/i)).toBeNull();
     expect(document.querySelectorAll(".stack-card").length).toBeGreaterThan(0);
@@ -145,7 +154,9 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("total-meter")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
     expect(pileColors()).toEqual(["blue", "gold"]);
     expect(screen.queryByTestId("pile-green")).toBeNull();
-    expect([...document.querySelectorAll(".stack-card")].every((card) => card.classList.contains("tone-blue") || card.classList.contains("tone-gold"))).toBe(true);
+    const piled = [...document.querySelectorAll(".stack-card")];
+    expect(piled.every((card) => card.classList.contains("tone-blue") || card.classList.contains("tone-gold") || card.classList.contains("kind-grey"))).toBe(true);
+    expect(piled.filter((card) => card.classList.contains("kind-value")).length).toBeGreaterThan(0);
   });
 
   it("plays the featured Red seed: two boosters wait under the pack, then red busts at 0× and cancels both", async () => {
@@ -172,8 +183,8 @@ describe("App", () => {
     expect(screen.getByTestId("booster-count")).toHaveClass("is-dead");
     expect(screen.getByTestId("caption")).toHaveTextContent(/0\.00×/);
     expect(screen.getByTestId("bust-badge")).toHaveTextContent(/Bust/);
-    expect(screen.getByTestId("bust-badge")).toHaveTextContent("0.00×");
-    expect(meterOf("total-meter")).toHaveTextContent(/bust · 0×/);
+    expect(screen.getByTestId("bust-badge")).toHaveAttribute("aria-label", "Bust 0.00×");
+    expect(meterOf("total-meter")).toHaveTextContent(/Bust/);
     expect(document.querySelectorAll(".stack-card.is-dying").length).toBeGreaterThan(0);
     expect(screen.queryByTestId("win-overlay")).toBeNull();
     expect(screen.queryByTestId("win-badge")).toBeNull();
@@ -189,7 +200,7 @@ describe("App", () => {
     await openExamples(user);
     await user.click(screen.getByRole("button", { name: "Pack chain" }));
     await user.click(screen.getByTestId("play-button"));
-    await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveTextContent(formatMultiplier(engine.multiplierMicros)));
+    await waitFor(() => expect(screen.getByTestId("win-badge")).toHaveAttribute("aria-label", `Win ${formatMultiplier(engine.multiplierMicros)}`));
     expect(screen.getByTestId("pack-meter")).toHaveTextContent("3/3");
     expect(screen.getByTestId("pack-stack")).toHaveAttribute("data-waiting", "0");
     expect(screen.getByTestId("pack")).toHaveClass("is-bonus");
@@ -226,7 +237,9 @@ describe("App", () => {
     expect(dialog).toHaveTextContent(/\+1 PACK/);
     expect(dialog).toHaveTextContent(/RED/);
     expect(dialog).toHaveTextContent(/GREY/);
-    expect(dialog).toHaveTextContent(/FULL STACK/);
+    expect(dialog).toHaveTextContent(/STACK BONUS ×2/);
+    expect(dialog).toHaveTextContent(/joins a random pile/);
+    expect(dialog.querySelectorAll(".legend-row")).toHaveLength(8);
     expect(dialog).toHaveTextContent(/Easy/);
     expect(dialog).toHaveTextContent(/Hard/);
     expect(dialog).toHaveTextContent(/Not a validated RTP/);
