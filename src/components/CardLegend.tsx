@@ -6,7 +6,7 @@ const ROWS = [
   { tone: "blue", name: "Blue", note: "Mid value" },
   { tone: "gold", name: "Gold", note: "High value" },
   { tone: "grey", name: "Grey", note: "0× · joins a pile" },
-  { tone: "purple", name: "Purple", note: `×${PURPLE_FACTOR} one pile` },
+  { tone: "purple", name: "Purple", note: `×${PURPLE_FACTOR} biggest pile` },
   { tone: "extra", name: "+1 Pack", note: "Extra pack" },
   { tone: "red", name: "Red", note: "Bust · 0×" },
 ] as const;

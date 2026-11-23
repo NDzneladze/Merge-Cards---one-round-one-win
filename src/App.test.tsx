@@ -38,7 +38,7 @@ describe("App", () => {
     expect(engine.openedPacks).toBe(2);
     render(<App />);
 
-    expect(screen.getByText(/Prototype v0.10/)).toBeInTheDocument();
+    expect(screen.getByText(/Prototype v0.11/)).toBeInTheDocument();
     // The legend is a closed block in the rail. It is not on the table.
     const legend = screen.getByTestId("card-legend");
     expect(legend.closest(".controls")).toBeTruthy();

@@ -16,35 +16,33 @@ export type ResolveInput = {
 };
 
 /**
- * Purple targeting rule over the difficulty's eligible piles only:
- *   1. the stack with the most value cards,
- *   2. tie → the stack with the highest current total (purple and Stack Bonus included),
- *   3. tie → the leftmost stack.
- * Card count is the number of value cards only. Grey cards sit in the pile
- * and count toward Stack Bonus, but they do not pull a purple toward a pile.
- * Only stacks that hold at least one value card are considered. If none does,
- * the boost lands on the leftmost eligible stack (Green on Easy and Medium,
- * Blue on Hard) and applies to whatever arrives there later.
+ * Purple targeting over the difficulty's eligible piles. The count is the
+ * physical pile: every landed card, Grey included. Purple, Red and +1 PACK
+ * never join a pile, so they never increase it.
+ *   1. the pile with the most physical cards,
+ *   2. tie → the pile with the highest current total (existing Purple factors
+ *      and Stack Bonus included),
+ *   3. tie → the leftmost pile.
+ * A pile of only Grey cards is occupied and can take the boost. Its total
+ * stays 0× until a value card joins, and the factor applies to that card.
+ * If every eligible pile is empty, the boost lands on the leftmost one
+ * (Green on Easy and Medium, Blue on Hard).
  */
 export function chooseBoostTarget(stacks: readonly StackState[]): StackColor {
-  const eligible = stacks.filter((stack) => valueCount(stack) > 0);
-  const pool = eligible.length > 0 ? eligible : stacks;
+  const occupied = stacks.filter((stack) => stack.cards.length > 0);
+  const pool = occupied.length > 0 ? occupied : stacks;
   let best = pool[0];
   if (!best) throw new Error("No stacks to boost");
   for (const stack of pool.slice(1)) {
-    if (valueCount(stack) > valueCount(best)) {
+    if (stack.cards.length > best.cards.length) {
       best = stack;
       continue;
     }
-    if (valueCount(stack) === valueCount(best) && stackTotal(stack) > stackTotal(best)) {
+    if (stack.cards.length === best.cards.length && stackTotal(stack) > stackTotal(best)) {
       best = stack;
     }
   }
   return best.color;
-}
-
-function valueCount(stack: StackState): number {
-  return stack.cards.reduce((count, card) => (card.kind === "value" ? count + 1 : count), 0);
 }
 
 /**

@@ -73,7 +73,7 @@ export type RoundEvent =
       type: "full_stack";
       cardId: string;
       color: StackColor;
-      /** Value cards in the pile at the moment it first reached the threshold. Always the threshold. */
+      /** Physical cards in the pile when it first reached the threshold, Grey included. Always the threshold. */
       count: number;
       /** The one-shot pile multiplier. 2 in the prototype. */
       factor: number;
@@ -132,7 +132,7 @@ export type RoundResult = {
   stacks: readonly StackState[];
   /** Board value wiped by the red card. Zero on a safe finish. */
   lostMicros: bigint;
-  /** Safe blank cards revealed. They pay 0× and never join a pile. */
+  /** Safe blank cards revealed. They pay 0× and join a pile. */
   greyCards: number;
   /** Piles that unlocked Full Stack and still paid. Zero after a red card. */
   fullStackPiles: number;

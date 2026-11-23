@@ -5,7 +5,7 @@ import type { CardKind, Difficulty, StackColor, WinTier } from "./types";
  * prototype knob: NOT a validated RTP, NOT certified, NOT for real money.
  * `npm run simulate` reports what the current knobs produce per difficulty.
  */
-export const DEMO_CONFIG_ID = "merge-packs-demo-v0.10";
+export const DEMO_CONFIG_ID = "merge-packs-demo-v0.11";
 
 export const MICRO = 1_000_000n;
 
@@ -42,14 +42,36 @@ export type ValueDistribution =
   | { kind: "weighted"; entries: readonly { valueMicros: bigint; weight: number }[] };
 
 /**
- * Green is small change. 88 % of green cards are ≤ 0.20× (0.10×, 0.12× and
- * 0.13× alone make 72 %); the larger denominations are deliberately rare so
- * a safe round can finish below 1.00×. Mean ≈ 0.16×.
+ * Green on Easy. Same 0.10×–1.00× denominations as v0.10, shifted toward the
+ * small end so the mode mean can sit near 0.95× after Grey counts for Purple.
+ * 93% are ≤ 0.20×. Mean 0.1482×. The 0.75× and 1.00× cards stay in the table.
+ */
+export const GREEN_VALUES_EASY: ValueDistribution = {
+  kind: "weighted",
+  entries: [
+    { valueMicros: 100_000n, weight: 36 },
+    { valueMicros: 120_000n, weight: 23 },
+    { valueMicros: 130_000n, weight: 19 },
+    { valueMicros: 150_000n, weight: 9 },
+    { valueMicros: 180_000n, weight: 3 },
+    { valueMicros: 200_000n, weight: 3 },
+    { valueMicros: 250_000n, weight: 1 },
+    { valueMicros: 300_000n, weight: 2 },
+    { valueMicros: 400_000n, weight: 1 },
+    { valueMicros: 500_000n, weight: 1 },
+    { valueMicros: 750_000n, weight: 1 },
+    { valueMicros: 1_000_000n, weight: 1 },
+  ],
+};
+
+/**
+ * Green on Medium. A smaller shift than Easy: Medium already has Gold, so the
+ * same Easy table would push it under the band. 89% are ≤ 0.20×. Mean 0.157×.
  */
 export const GREEN_VALUES: ValueDistribution = {
   kind: "weighted",
   entries: [
-    { valueMicros: 100_000n, weight: 30 },
+    { valueMicros: 100_000n, weight: 31 },
     { valueMicros: 120_000n, weight: 23 },
     { valueMicros: 130_000n, weight: 19 },
     { valueMicros: 150_000n, weight: 9 },
@@ -58,7 +80,7 @@ export const GREEN_VALUES: ValueDistribution = {
     { valueMicros: 250_000n, weight: 3 },
     { valueMicros: 300_000n, weight: 3 },
     { valueMicros: 400_000n, weight: 2 },
-    { valueMicros: 500_000n, weight: 2 },
+    { valueMicros: 500_000n, weight: 1 },
     { valueMicros: 750_000n, weight: 1 },
     { valueMicros: 1_000_000n, weight: 1 },
   ],
@@ -74,19 +96,19 @@ export const BLUE_VALUES: ValueDistribution = {
 
 /**
  * Blue on Hard, where every prize card is worth ≥ 1×: the same 1.00× – 3.00×
- * span, but weighted towards the low end (mean ≈ 1.25×) so six Blue/Gold
- * cards per pack do not make Hard a strictly better pick.
+ * span, weighted a little further toward the low end than v0.10 (mean 1.186×,
+ * was 1.222×). The 3.00× card keeps its weight, so the top of the band is still dealt.
  */
 export const BLUE_VALUES_HARD: ValueDistribution = {
   kind: "weighted",
   entries: [
-    { valueMicros: 1_000_000n, weight: 46 },
+    { valueMicros: 1_000_000n, weight: 48 },
     { valueMicros: 1_050_000n, weight: 14 },
     { valueMicros: 1_100_000n, weight: 12 },
-    { valueMicros: 1_200_000n, weight: 9 },
-    { valueMicros: 1_500_000n, weight: 8 },
-    { valueMicros: 2_000_000n, weight: 6 },
-    { valueMicros: 2_500_000n, weight: 3 },
+    { valueMicros: 1_200_000n, weight: 11 },
+    { valueMicros: 1_500_000n, weight: 7 },
+    { valueMicros: 2_000_000n, weight: 4 },
+    { valueMicros: 2_500_000n, weight: 2 },
     { valueMicros: 3_000_000n, weight: 2 },
   ],
 };
@@ -102,6 +124,11 @@ export const VALUE_TABLES: Record<StackColor, ValueDistribution> = {
   green: GREEN_VALUES,
   blue: BLUE_VALUES,
   gold: GOLD_VALUES,
+};
+
+export const VALUE_TABLES_EASY: Record<StackColor, ValueDistribution> = {
+  ...VALUE_TABLES,
+  green: GREEN_VALUES_EASY,
 };
 
 export const VALUE_TABLES_HARD: Record<StackColor, ValueDistribution> = {
@@ -137,20 +164,13 @@ export type DifficultyConfig = {
 export const DIFFICULTY_ORDER = ["easy", "medium", "hard"] as const satisfies readonly Difficulty[];
 
 /**
- * Experimental v0.8 weights, per-mille, summing to 1000. NOT certified RTP.
+ * Draw weights, per-mille, summing to 1000. NOT certified RTP.
  *
- * v0.7 weights are invalid here: Grey takes a slot at 0×, and Stack Bonus
- * doubles a pile that reaches 10 cards. v0.10 keeps these weights as they are
- * and changes the rule: a grey now sits in a pile and counts toward the 10. Each mode has its own grey
- * weight. Grey is never copied from that mode's green weight.
+ * v0.11 keeps the v0.10 weights exactly, including every Red weight. The
+ * rebalance is in the denomination tables: Easy green, Medium green, and
+ * Hard blue. Grey is still its own weight, never a copy of green.
  *
- * Hard keeps a 29% red card (the v0.7 rate). That is the extreme-risk knob.
- * Grey on Hard is taken from Blue, not from Red, so the bust rate is not
- * softened to chase the 0.94–0.96× tuning hypothesis. `npm run simulate`
- * prints what these knobs actually do.
- *
- * Chosen after 20k-round probes so the demo mean sits near 0.94–0.96×.
- * Hard's red weight stays 29.0%, the v0.7 rate. Grey was not taken out of Red.
+ * Hard's red weight stays 29.0%. It was not raised to pull the mean down.
  *
  * Easy   green 72.4 · blue 2.0 · grey 8.8 · purple 2.4 · red 7.8 · +1 6.6
  * Medium green 70.4 · blue 2.2 · gold 0.5 · grey 9.4 · purple 1.8 · red 9.6 · +1 6.1
@@ -163,7 +183,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     colors: ["green", "blue"],
     blurb: "Green + Blue · frequent small returns",
     weights: { green: 724, blue: 20, gold: 0, grey: 88, purple: 24, red: 78, extra: 66 },
-    values: VALUE_TABLES,
+    values: VALUE_TABLES_EASY,
   },
   medium: {
     id: "medium",

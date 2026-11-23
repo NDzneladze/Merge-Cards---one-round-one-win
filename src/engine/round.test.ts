@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BLUE_VALUES,
+  BLUE_VALUES_HARD,
   CELEBRATION_MIN_MICROS,
   DEMO_CONFIG,
   DIFFICULTIES,
@@ -9,6 +10,7 @@ import {
   FULL_STACK_FACTOR,
   GOLD_VALUES,
   GREEN_VALUES,
+  GREEN_VALUES_EASY,
   MICRO,
   WIN_TIERS,
   configFor,
@@ -198,6 +200,8 @@ describe("config", () => {
       expect(mode.weights.extra).toBeGreaterThan(0);
       expect(mode.weights.grey).toBeGreaterThan(0);
       expect(mode.weights.grey).not.toBe(mode.weights.green);
+      // v0.11 did not move Red. These are the v0.10 per-mille weights.
+      expect(mode.weights.red).toBe(id === "easy" ? 78 : id === "medium" ? 96 : 290);
       expect(configFor(id).maxPacks).toBe(6);
       expect(configFor(id).cardsPerPack).toBe(6);
     }
@@ -210,13 +214,21 @@ describe("config", () => {
     expect(DEMO_CONFIG.difficulty).toBe("medium");
   });
 
-  it("keeps green small: at least 75 % of green cards are ≤ 0.20×", () => {
-    if (GREEN_VALUES.kind !== "weighted") throw new Error("green must be a weighted table");
-    const total = tableWeight(GREEN_VALUES);
-    const small = GREEN_VALUES.entries.filter((entry) => entry.valueMicros <= 200_000n).reduce((sum, entry) => sum + entry.weight, 0);
-    expect(small / total).toBeGreaterThanOrEqual(0.75);
-    for (const value of [100_000n, 120_000n, 130_000n]) expect(valueSupport(GREEN_VALUES)).toContain(value);
-    expect(valueBounds(GREEN_VALUES).minMicros).toBe(100_000n);
+  it("keeps green small: at least 75 % of green cards are ≤ 0.20× on Easy and Medium", () => {
+    for (const table of [GREEN_VALUES, GREEN_VALUES_EASY]) {
+      if (table.kind !== "weighted") throw new Error("green must be a weighted table");
+      const total = tableWeight(table);
+      const small = table.entries.filter((entry) => entry.valueMicros <= 200_000n).reduce((sum, entry) => sum + entry.weight, 0);
+      expect(small / total).toBeGreaterThanOrEqual(0.75);
+      for (const value of [100_000n, 120_000n, 130_000n, 1_000_000n]) expect(valueSupport(table)).toContain(value);
+      expect(valueBounds(table).minMicros).toBe(100_000n);
+      expect(valueBounds(table).maxMicros).toBe(1_000_000n);
+    }
+    expect(DIFFICULTIES.easy.values.green).toBe(GREEN_VALUES_EASY);
+    expect(DIFFICULTIES.medium.values.green).toBe(GREEN_VALUES);
+    if (BLUE_VALUES_HARD.kind !== "weighted") throw new Error("hard blue must be a weighted table");
+    expect(valueBounds(BLUE_VALUES_HARD)).toEqual({ minMicros: 1_000_000n, maxMicros: 3_000_000n });
+    expect(valueBounds(GOLD_VALUES)).toEqual({ minMicros: 5_000_000n, maxMicros: 15_000_000n });
     expect(rangeSteps(BLUE_VALUES.kind === "uniform" ? BLUE_VALUES : (() => { throw new Error("blue"); })())).toBe(41);
     expect(rangeSteps(GOLD_VALUES.kind === "uniform" ? GOLD_VALUES : (() => { throw new Error("gold"); })())).toBe(21);
     expect(WIN_TIERS.map((rule) => rule.tier)).toEqual(["mega", "huge", "big"]);
@@ -597,33 +609,45 @@ describe("+1 PACK chain", () => {
 });
 
 describe("chooseBoostTarget", () => {
-  const stack = (color: StackState["color"], values: number[], factor = 1, fullStack = false): StackState => ({
+  const stack = (color: StackState["color"], values: number[], factor = 1, fullStack = false, greys = 0): StackState => ({
     color,
     factor,
     fullStack,
-    cards: values.map((value, index) => ({
-      kind: "value",
-      id: `${color}-${index}`,
-      color,
-      valueMicros: BigInt(Math.round(value * 100)) * 10_000n,
-    })),
+    cards: [
+      ...values.map((value, index) => ({
+        kind: "value" as const,
+        id: `${color}-${index}`,
+        color,
+        valueMicros: BigInt(Math.round(value * 100)) * 10_000n,
+      })),
+      ...Array.from({ length: greys }, (_, index) => ({ kind: "grey" as const, id: `${color}-g${index}` })),
+    ],
   });
 
-  it("picks the stack with the most cards", () => {
+  it("picks the pile with the most physical cards, Grey included", () => {
     expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1]), stack("blue", [3, 3]), stack("gold", [15])])).toBe("green");
+    // Green 3 prizes + 2 greys = 5 cards. Blue 4 prizes worth 12×. Physical count wins.
+    expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, false, 2), stack("blue", [3, 3, 3, 3])])).toBe("green");
+    // A pile of only greys is occupied and can take the boost.
+    expect(chooseBoostTarget([stack("green", []), stack("blue", [], 1, false, 2), stack("gold", [])])).toBe("blue");
   });
 
-  it("breaks a card-count tie by the highest current total, including existing boosts and Full Stack", () => {
+  it("breaks a physical-count tie by the highest current total, including existing boosts and Stack Bonus", () => {
     expect(chooseBoostTarget([stack("green", [0.9, 0.9]), stack("blue", [1, 1]), stack("gold", [])])).toBe("blue");
     expect(chooseBoostTarget([stack("green", [0.9, 0.9], 4), stack("blue", [1, 1]), stack("gold", [])])).toBe("green");
-    // Same count. Full Stack doubles blue's total and wins the tie. The count stays 2.
+    // Same count. Stack Bonus doubles blue's total and wins the tie.
     expect(chooseBoostTarget([stack("green", [1, 1]), stack("blue", [1, 1], 1, true), stack("gold", [])])).toBe("blue");
-    // More value cards still beat a shorter pile even when that pile is Full Stack.
+    // A longer pile still beats a shorter one even when that shorter pile is already doubled.
     expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, true), stack("blue", [5, 5])])).toBe("green");
+    // Two cards each. The grey does not add value, so the richer pile wins the tie.
+    expect(chooseBoostTarget([stack("green", [0.4], 1, false, 1), stack("blue", [0.3, 0.3])])).toBe("blue");
+    expect(chooseBoostTarget([stack("green", [1], 1, false, 1), stack("blue", [0.4], 1, true, 1)])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.3], 1, false, 1), stack("blue", [0.4], 1, true, 1)])).toBe("blue");
   });
 
-  it("breaks a full tie by the leftmost stack and ignores empty stacks while any stack has cards", () => {
+  it("breaks a full tie by the leftmost pile and ignores empty piles while any pile has cards", () => {
     expect(chooseBoostTarget([stack("green", [0.5, 0.5]), stack("blue", [0.5, 0.5]), stack("gold", [])])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.5], 1, false, 1), stack("blue", [0.5], 1, false, 1)])).toBe("green");
     expect(chooseBoostTarget([stack("green", []), stack("blue", [1]), stack("gold", [])])).toBe("blue");
   });
 
@@ -716,20 +740,52 @@ describe("grey card", () => {
     expect(() => resolveRound({ seed: "route", stake: 1, difficulty: "hard", script: [greyTo("green")] })).toThrow(/grey target/);
   });
 
-  it("does not pull a purple: targeting still counts value cards only", () => {
+  it("pulls a purple onto the biggest physical pile, including a pile of only greys", () => {
     const result = resolveRound({
       seed: "grey-purple",
       stake: 1,
-      script: [g(0.5), greyTo("green"), greyTo("green"), b(1), b(1), purple],
+      script: [
+        g(0.1),
+        g(0.1),
+        g(0.1),
+        greyTo("green"),
+        greyTo("green"),
+        extra,
+        b(3),
+        b(3),
+        b(3),
+        b(3),
+        purple,
+        g(0.1),
+      ],
     });
     assertWellFormed(result);
-    // Green holds 3 cards but 1 prize. Blue holds 2 prizes and takes the purple.
-    expect(result.stacks.map((stack) => stack.cards.length)).toEqual([3, 2, 0]);
-    expect(eventsOf(result, "boost")[0]).toMatchObject({ color: "blue" });
-    expect(result.multiplierMicros).toBe(4_500_000n);
-    // A pile of greys alone holds no prize, so the purple falls back to the leftmost pile.
-    const blank = resolveRound({ seed: "grey-purple-2", stake: 1, script: [greyTo("blue"), purple, b(1), g(0.5), g(0.5), g(0.5)] });
-    expect(eventsOf(blank, "boost")[0]).toMatchObject({ color: "green" });
+    const green = result.stacks.find((stack) => stack.color === "green")!;
+    const blue = result.stacks.find((stack) => stack.color === "blue")!;
+    // Green 3 prizes + 2 greys = 5. Blue 4 prizes worth 12×. Purple still goes to green.
+    expect(green.cards).toHaveLength(6);
+    expect(valueCards(green)).toBe(4);
+    expect(greysIn(green)).toBe(2);
+    expect(blue.cards).toHaveLength(4);
+    expect(eventsOf(result, "boost")[0]).toMatchObject({ color: "green", stackTotalMicros: 600_000n });
+    // Green (0.40) × 2 + blue 12. The purple does not touch the richer pile.
+    expect(green.factor).toBe(2);
+    expect(blue.factor).toBe(1);
+    expect(result.multiplierMicros).toBe(12_800_000n);
+
+    // Two greys make blue the only occupied pile. Purple lands there at 0× and stays for the value card.
+    const blank = resolveRound({
+      seed: "grey-purple-2",
+      stake: 1,
+      script: [greyTo("blue"), greyTo("blue"), purple, b(1), g(0.5), g(0.5)],
+    });
+    assertWellFormed(blank);
+    const boost = eventsOf(blank, "boost")[0];
+    expect(boost).toMatchObject({ color: "blue", stackTotalMicros: 0n, stackFactor: 2 });
+    expect(blank.stacks.find((stack) => stack.color === "blue")).toMatchObject({ factor: 2 });
+    // blue 1.00 × 2 + green 1.00. The factor persisted onto the card that arrived after the boost.
+    expect(blank.multiplierMicros).toBe(3_000_000n);
+    expect(blank.stacks.find((stack) => stack.color === "green")!.factor).toBe(1);
   });
 
   it("resolves six greys as a safe 0× no-win, distinct from a red bust", () => {

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, FULL_STACK_FACTOR, GREEN_VALUES, MAX_PACKS, PURPLE_FACTOR, WIN_TIERS } from "../engine/config";
+import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, FULL_STACK_FACTOR, GREEN_VALUES, GREEN_VALUES_EASY, MAX_PACKS, PURPLE_FACTOR, WIN_TIERS } from "../engine/config";
+import type { ValueDistribution } from "../engine/config";
 import { valueBounds } from "../engine/draw";
 import { formatMultiplier } from "../engine/money";
 import { labelColor } from "../playback/scene";
@@ -12,6 +13,14 @@ type Props = {
 /** Per-mille draw weight → percentage label. */
 const pct = (perMille: number) => `${(perMille / 10).toFixed(1).replace(/\.0$/, "")}%`;
 
+/** Share of a green table at or below 0.20×, rounded to the nearest percent. */
+function greenSmallShare(table: ValueDistribution): number {
+  if (table.kind !== "weighted") return 0;
+  const total = table.entries.reduce((sum, entry) => sum + entry.weight, 0);
+  const small = table.entries.filter((entry) => entry.valueMicros <= 200_000n).reduce((sum, entry) => sum + entry.weight, 0);
+  return Math.round((100 * small) / total);
+}
+
 export function InfoModal({ onClose }: Props) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -21,13 +30,8 @@ export function InfoModal({ onClose }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const greenSmall =
-    GREEN_VALUES.kind === "weighted"
-      ? Math.round(
-          (100 * GREEN_VALUES.entries.filter((entry) => entry.valueMicros <= 200_000n).reduce((sum, entry) => sum + entry.weight, 0)) /
-            GREEN_VALUES.entries.reduce((sum, entry) => sum + entry.weight, 0),
-        )
-      : 0;
+  const easySmall = greenSmallShare(GREEN_VALUES_EASY);
+  const mediumSmall = greenSmallShare(GREEN_VALUES);
 
   return (
     <div className="overlay" role="presentation" onClick={onClose}>
@@ -51,14 +55,15 @@ export function InfoModal({ onClose }: Props) {
           <li>Pick a difficulty, set a stake, press Play. One stake opens one pack of six cards.</li>
           <li>Each card launches upward out of the pack, flips in the air and tucks into the pile of its colour. A pile is worth the sum of its cards.</li>
           <li>
-            <strong>PURPLE</strong> lands on the pile with the most value cards and multiplies it by ×{PURPLE_FACTOR}. Grey
-            cards do not count for this. Ties go to the highest boosted total, then to the leftmost pile. Boosts stack
-            with each other, and with Stack Bonus.
+            <strong>PURPLE</strong> lands on the biggest pile and multiplies it by ×{PURPLE_FACTOR}. Every card in the
+            pile counts, Grey included. Ties go to the highest boosted total, then to the leftmost pile. A pile of only
+            Grey cards can take the boost: it stays 0× until a value card joins, and that card is multiplied. Boosts
+            stack with each other, and with Stack Bonus.
           </li>
           <li>
             <strong>GREY</strong> is an empty card, 0×. It joins a random pile that already holds a card, or any pile if
             the table is empty. It adds nothing to that pile's value and it is not a bust, a boost or a pack. It does
-            count as a card in the pile.
+            count as a card in the pile, so it helps that pile reach Stack Bonus and it can draw a Purple onto it.
           </li>
           <li>
             <strong>STACK BONUS ×{FULL_STACK_FACTOR}</strong> happens once per pile, when the pile reaches {FULL_STACK_COUNT}{" "}
@@ -108,7 +113,9 @@ export function InfoModal({ onClose }: Props) {
               <td>
                 {formatMultiplier(valueBounds(GREEN_VALUES).minMicros)} – {formatMultiplier(valueBounds(GREEN_VALUES).maxMicros)}
               </td>
-              <td>{greenSmall}% of green cards are 0.20× or less</td>
+              <td>
+                Easy {easySmall}% and Medium {mediumSmall}% of green cards are 0.20× or less
+              </td>
             </tr>
             <tr>
               <th>Blue</th>
