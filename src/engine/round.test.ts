@@ -208,15 +208,29 @@ describe("config", () => {
       expect(mode.weights.extra).toBeGreaterThan(0);
       expect(mode.weights.grey).toBeGreaterThan(0);
       expect(mode.weights.grey).not.toBe(mode.weights.green);
-      // v0.12 did not move Red. These are the v0.10 per-mille weights.
+      // Red is the v0.10 weight. v0.13 did not raise it.
       expect(mode.weights.red).toBe(id === "easy" ? 78 : id === "medium" ? 96 : 290);
-      // Grey is noticeably more common than v0.11 (88 / 94 / 50) and stays inside the exploration band.
-      const greyBand = id === "hard" ? [90, 130] : [160, 200];
-      expect(mode.weights.grey).toBeGreaterThanOrEqual(greyBand[0]!);
-      expect(mode.weights.grey).toBeLessThanOrEqual(greyBand[1]!);
-      expect(mode.weights.grey).toBeGreaterThan(id === "hard" ? 50 : 94);
+      // Grey is more than double the v0.12 rate (180 / 180 / 110).
+      expect(mode.weights.grey).toBe(id === "hard" ? 250 : 400);
+      expect(mode.weights.grey).toBeGreaterThan((id === "hard" ? 110 : 180) * 2);
       expect(configFor(id).maxPacks).toBe(6);
       expect(configFor(id).cardsPerPack).toBe(6);
+    }
+  });
+
+  it("deals grey near its configured weight across real seeded rounds", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      let grey = 0;
+      let revealed = 0;
+      for (let i = 0; i < 1_200; i += 1) {
+        const result = resolveRound({ seed: `grey-share-${id}-${i}`, stake: 1, difficulty: id });
+        grey += result.greyCards;
+        revealed += result.events.filter((event) => event.type === "card_reveal").length;
+      }
+      const rate = grey / revealed;
+      const target = DIFFICULTIES[id].weights.grey / 1000;
+      expect(rate).toBeGreaterThan(target - 0.025);
+      expect(rate).toBeLessThan(target + 0.025);
     }
   });
 
@@ -445,7 +459,7 @@ describe("resolveRound", () => {
         expect(example.difficulty).toBe("easy");
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.multiplierMicros).toBe(760_000n);
+        expect(result.multiplierMicros).toBe(330_000n);
       }
       if (example.id === "bust") {
         expect(result.outcome).toBe("bust");
@@ -473,7 +487,7 @@ describe("resolveRound", () => {
       if (example.id === "grey") {
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.greyCards).toBe(2);
+        expect(result.greyCards).toBeGreaterThanOrEqual(3);
         expect(result.multiplierMicros).toBeGreaterThan(0n);
         expect(result.multiplierMicros).toBeLessThan(MICRO);
         expect(eventsOf(result, "bust")).toHaveLength(0);
