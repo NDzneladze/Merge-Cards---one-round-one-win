@@ -10,7 +10,7 @@ import { createRoundSeed } from "./engine/rng";
 import { resolveRound } from "./engine/round";
 import type { Difficulty, RoundResult } from "./engine/types";
 import { buildTimeline, initialScene, reduceSteps, sceneFor, type Step } from "./playback/scene";
-import { delayFor } from "./playback/timing";
+import { holdBefore } from "./playback/timing";
 import { appliedFor, readLaunch } from "./launch";
 import "./styles.css";
 
@@ -67,7 +67,7 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
   }
 }
 
-function bootRound(): { round: ActiveRound; applied: number } | null {
+function bootRound(): { round: ActiveRound; applied: number; slow: number } | null {
   const launch = readLaunch(window.location.search);
   if (!launch) return null;
   const result = resolveRound({
@@ -84,6 +84,7 @@ function bootRound(): { round: ActiveRound; applied: number } | null {
       steps,
     },
     applied: appliedFor(steps, launch.at),
+    slow: launch.slow,
   };
 }
 
@@ -111,6 +112,8 @@ export function App() {
   const [round, setRound] = useState<ActiveRound | null>(boot?.round ?? null);
   const [applied, setApplied] = useState(boot?.applied ?? 0);
   const sounded = useRef("");
+  // QA slow motion applies to the launched round only. A round started with Play runs at the fixed tempo.
+  const tempo = boot && round?.playId === boot.round.playId ? boot.slow : 1;
 
   const playId = round?.playId;
   const [trackedId, setTrackedId] = useState(playId);
@@ -125,11 +128,11 @@ export function App() {
 
   useEffect(() => {
     if (!round || applied >= total) return;
-    const step = round.steps[applied];
-    if (!step) return;
-    const timer = window.setTimeout(() => setApplied((current) => current + 1), delayFor(step.kind));
+    // A step's delay is how long it stays on screen. The next step waits for the one showing now,
+    // so a flight lasts as long as its CSS animation and is never cut short by the landing.
+    const timer = window.setTimeout(() => setApplied((current) => current + 1), holdBefore(round.steps, applied) * tempo);
     return () => window.clearTimeout(timer);
-  }, [round, applied, total]);
+  }, [round, applied, total, tempo]);
 
   useEffect(() => {
     if (!round || applied === 0) return;
@@ -210,7 +213,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.9 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.10 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">
@@ -243,7 +246,7 @@ export function App() {
           onInfo={() => setInfoOpen(true)}
         />
         <main>
-          <PackStage scene={scene} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} />
+          <PackStage scene={scene} result={round?.result ?? null} roundKey={round?.playId ?? ""} settled={done} tempo={tempo} />
         </main>
       </div>
 

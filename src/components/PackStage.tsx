@@ -5,8 +5,7 @@ import type { Scene } from "../playback/scene";
 import { PLAYBACK_SCALE } from "../playback/timing";
 import { CardBoard } from "./CardBoard";
 import { CardBack, CardFace } from "./CardFace";
-import { CardLegend } from "./CardLegend";
-import { fitStage } from "./fitStage";
+import { QUEUE_LAYERS, fitStage } from "./fitStage";
 import { PackArt } from "./PackArt";
 import { ResultOverlay } from "./ResultOverlay";
 
@@ -15,6 +14,8 @@ type Props = {
   result: RoundResult | null;
   roundKey: string;
   settled: boolean;
+  /** 1 in play. A QA launch can stretch the clock; the cards and the result do not change. */
+  tempo?: number;
 };
 
 type Flight = {
@@ -25,18 +26,13 @@ type Flight = {
   ty: number;
 };
 
-/** Physical boosters drawn under the active pack. A +N chip carries any further packs. */
-const BOOSTER_LAYERS = 2;
-
-export function PackStage({ scene, result, roundKey, settled }: Props) {
+export function PackStage({ scene, result, roundKey, settled, tempo = 1 }: Props) {
   const stageRef = useRef<HTMLElement>(null);
   const mouthRef = useRef<HTMLDivElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
-  const discardRef = useRef<HTMLDivElement>(null);
   const boostersRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef<Partial<Record<StackColor, HTMLDivElement | null>>>({});
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [legend, setLegend] = useState(false);
 
   const registerSlot = useCallback((color: StackColor, element: HTMLDivElement | null) => {
     slotRefs.current[color] = element;
@@ -62,15 +58,18 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       });
       stage.style.setProperty("--card-w", `${next.card}px`);
       stage.style.setProperty("--peek", `${next.peek}px`);
-      stage.style.setProperty("--lip", `${next.lip}px`);
       stage.style.setProperty("--gap", `${next.gap}px`);
+      stage.style.setProperty("--row-gap", `${next.rowGap}px`);
+      stage.style.setProperty("--qdx", `${next.queueDx}px`);
+      stage.style.setProperty("--qdy", `${next.queueDy}px`);
       stage.style.setProperty("--pack-w", `${next.packW}px`);
       stage.style.setProperty("--pack-h", `${next.packH}px`);
       stage.dataset.cardW = String(next.card);
       stage.dataset.cluster = String(Math.round(next.cluster));
       stage.dataset.occupancy = next.occupancy.toFixed(3);
       stage.dataset.tableW = String(Math.round(width));
-      setLegend((current) => (current === next.legend ? current : next.legend));
+      stage.dataset.packW = String(next.packW);
+      stage.dataset.packH = String(next.packH);
     };
     fit();
     const observer = new ResizeObserver(fit);
@@ -100,13 +99,11 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       const target =
         flyer.target === "center"
           ? centerRef.current
-          : flyer.target === "discard"
-            ? discardRef.current
-            : flyer.target === "boosters"
-              ? boostersRef.current
-              : flyer.target
-                ? slotRefs.current[flyer.target]
-                : null;
+          : flyer.target === "boosters"
+            ? boostersRef.current
+            : flyer.target
+              ? slotRefs.current[flyer.target]
+              : null;
       const rect = target?.getBoundingClientRect();
       if (rect) {
         tx = rect.left + rect.width / 2 - stage.left - x;
@@ -138,21 +135,23 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
               : "none";
 
   const totalLabel = finalShown ? "Result" : "Total";
-  const totalHint = idle
-    ? "\u00a0"
-    : verdict === null
-      ? "potential"
-      : verdict === "bust"
-        ? "bust · 0×"
-        : verdict === "celebrate"
-          ? `${scene.tier} win`
-          : verdict === "win"
-            ? "win"
-            : verdict === "even"
-              ? "break-even"
-      : verdict === "return"
-        ? "return · below stake"
-        : "no win · zero return";
+  const verdictText =
+    verdict === "bust"
+      ? "Bust"
+      : verdict === "celebrate"
+        ? `${scene.tier} win`
+        : verdict === "win"
+          ? "Win"
+          : verdict === "even"
+            ? "Break-even"
+            : verdict === "return"
+              ? "Return · below stake"
+              : verdict === "none"
+                ? "No win"
+                : "";
+  const verdictId =
+    verdict === "win" ? "win-badge" : verdict === "bust" ? "bust-badge" : verdict === "none" ? "nowin-badge" : verdict === "celebrate" ? "tier-badge" : "result-badge";
+  const shownTotal = formatMultiplier(dead ? 0n : scene.totalMicros);
 
   const payoutValue = finalShown && result ? (result.payoutMicros > 0n ? `+${formatMicros(result.payoutMicros)}` : "0.00") : "—";
   const netHint =
@@ -171,11 +170,11 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
         ? `${scene.packNo} opened`
         : "opened"
       : scene.pendingPacks > 0
-        ? `${scene.cardsLeftInPack} left · +${scene.pendingPacks} below`
+        ? `${scene.cardsLeftInPack} left · +${scene.pendingPacks} waiting`
         : `${scene.cardsLeftInPack} left`;
 
   const waiting = dead ? scene.cancelledPacks : scene.pendingPacks;
-  const layers = Math.min(waiting, BOOSTER_LAYERS);
+  const layers = Math.min(waiting, QUEUE_LAYERS);
   const bonusPack = scene.packNo > 1;
   const packOpen = scene.pack === "open";
   const packDetail = idle
@@ -183,42 +182,41 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
     : scene.pack === "dead"
       ? "busted"
       : scene.pack === "spent"
-        ? "closed"
+        ? "opened"
         : `${scene.cardsLeftInPack} left`;
 
   return (
     <section
       ref={stageRef}
-      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""} ${legend ? "show-legend" : ""}`}
+      className={`stage status-${scene.status} bust-${scene.bustPhase} tier-${scene.tier} mode-${scene.difficulty} piles-${scene.colors.length} ${flyer ? "has-flyer" : ""} ${finalShown ? "is-settled" : ""}`}
       data-testid="stage"
       aria-label="Game stage"
-      style={{ ["--anim" as string]: String(PLAYBACK_SCALE) }}
+      style={{ ["--anim" as string]: String(PLAYBACK_SCALE * tempo) }}
     >
-      <div className="hud">
+      <div className={`hud ${verdict ? `tone-${verdict}` : ""}`} role="group" aria-label="Round status" data-testid="hud">
         <Meter label="Pack" value={packValue} hint={packHint} testId="pack-meter" hot={burst?.tone === "extra"} />
-        <Meter
-          label={totalLabel}
-          value={idle ? "—" : formatMultiplier(dead ? 0n : scene.totalMicros)}
-          hint={totalHint}
-          testId="total-meter"
-          hero
-          hot={burst !== null && burst.tone !== "bust" && burst.tone !== "extra"}
-          tone={verdict ?? undefined}
-        />
+        <div
+          className={`meter is-hero ${burst !== null && burst.tone !== "bust" && burst.tone !== "extra" && burst.tone !== "grey" ? "is-hot" : ""} ${verdict ? `tone-${verdict}` : ""}`}
+        >
+          <span>{totalLabel}</span>
+          <strong data-testid="total-meter">{idle ? "—" : shownTotal}</strong>
+          {verdict ? (
+            <small>
+              <em
+                key={roundKey}
+                className={`verdict tone-${verdict}`}
+                data-testid={verdictId}
+                role="status"
+                aria-label={`${verdictText} ${shownTotal}`}
+              >
+                {verdictText}
+              </em>
+            </small>
+          ) : (
+            <small>{idle ? "\u00a0" : "potential"}</small>
+          )}
+        </div>
         <Meter label="Payout" value={payoutValue} hint={netHint} testId="payout-meter" />
-        {verdict === "win" || verdict === "even" || verdict === "return" || verdict === "bust" || verdict === "none" ? (
-          <p
-            key={roundKey}
-            className={`verdict-badge tone-${verdict}`}
-            data-testid={verdict === "win" ? "win-badge" : verdict === "bust" ? "bust-badge" : verdict === "none" ? "nowin-badge" : "result-badge"}
-            role="status"
-          >
-            <span>
-              {verdict === "win" ? "Win" : verdict === "even" ? "Break-even" : verdict === "return" ? "Return" : verdict === "bust" ? "Bust" : "No win"}
-            </span>
-            <strong>{formatMultiplier(dead ? 0n : scene.totalMicros)}</strong>
-          </p>
-        ) : null}
       </div>
 
       <p className="caption" aria-live="polite" data-testid="caption">
@@ -232,17 +230,18 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
             stacks={scene.stacks}
             dead={dead}
             showProgress={scene.status === "playing"}
+            burst={burst}
+            tempo={tempo}
             registerSlot={registerSlot}
           />
           <div ref={centerRef} className="arena-center" aria-hidden="true" />
-          <div ref={discardRef} className="discard-anchor" aria-hidden="true" />
           {scene.redCard && (scene.bustPhase === "strike" || scene.bustPhase === "wipe") ? (
             <div className={`red-strike ${scene.bustPhase === "wipe" ? "is-exit" : ""}`} data-testid="red-strike">
               <CardFace card={scene.redCard} size="fly" />
             </div>
           ) : null}
-          {burst ? (
-            <p key={burst.id} className={`burst tone-${burst.tone} ${burst.color ? `color-${burst.color}` : ""}`} aria-hidden="true">
+          {burst && burst.tone === "bust" ? (
+            <p key={burst.id} className="burst tone-bust" aria-hidden="true">
               {burst.text}
             </p>
           ) : null}
@@ -254,6 +253,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
             data-testid="pack-stack"
             data-waiting={waiting}
             data-pack-count={1 + layers}
+            style={{ ["--layers" as string]: String(layers) }}
           >
             {Array.from({ length: layers }, (_, index) => {
               const depth = index + 1;
@@ -266,7 +266,7 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
                   data-depth={depth}
                   aria-hidden="true"
                 >
-                  <PackArt bonus sealed product="Merge Packs" detail="Sealed" />
+                  <PackArt bonus sealed product="Merge Packs" detail="Bonus pack" />
                 </div>
               );
             })}
@@ -287,6 +287,11 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
                 mouthRef={mouthRef}
               />
             </div>
+            {burst && burst.tone === "extra" ? (
+              <p key={burst.id} className="burst tone-extra" aria-hidden="true">
+                {burst.text}
+              </p>
+            ) : null}
             {waiting > 0 ? (
               <span
                 key={`${scene.earnKey ?? "count"}:${waiting}:${dead ? "dead" : "live"}`}
@@ -317,6 +322,11 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
             }}
           >
             <div className="flyer-move">
+              {flyer.card.kind === "extra" && flyer.phase === "travel" ? (
+                <div className="flyer-pack" data-testid="flyer-pack">
+                  <PackArt bonus sealed product="Merge Packs" detail="Bonus pack" />
+                </div>
+              ) : null}
               <div className="flyer-hop">
                 <div className="flyer-flip">
                   <div className="face face-back">
@@ -333,8 +343,6 @@ export function PackStage({ scene, result, roundKey, settled }: Props) {
       ) : null}
 
       {scene.bustPhase === "strike" || scene.bustPhase === "wipe" ? <div className="red-flash" aria-hidden="true" /> : null}
-
-      {legend ? <CardLegend /> : null}
 
       {result && settled ? <ResultOverlay result={result} roundKey={roundKey} /> : null}
     </section>
