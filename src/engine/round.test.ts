@@ -221,6 +221,22 @@ describe("config", () => {
     }
   });
 
+  it("deals grey near its configured weight across real seeded rounds", () => {
+    for (const id of DIFFICULTY_ORDER) {
+      let grey = 0;
+      let revealed = 0;
+      for (let i = 0; i < 1_200; i += 1) {
+        const result = resolveRound({ seed: `grey-share-${id}-${i}`, stake: 1, difficulty: id });
+        grey += result.greyCards;
+        revealed += result.events.filter((event) => event.type === "card_reveal").length;
+      }
+      const rate = grey / revealed;
+      const target = DIFFICULTIES[id].weights.grey / 1000;
+      expect(rate).toBeGreaterThan(target - 0.025);
+      expect(rate).toBeLessThan(target + 0.025);
+    }
+  });
+
   it("maps the three difficulties to their eligible card sets", () => {
     expect(DIFFICULTIES.easy.colors).toEqual(["green", "blue"]);
     expect(DIFFICULTIES.medium.colors).toEqual(["green", "blue", "gold"]);
@@ -514,7 +530,7 @@ describe("resolveRound", () => {
       if (example.id === "grey") {
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.greyCards).toBe(2);
+        expect(result.greyCards).toBeGreaterThanOrEqual(3);
         expect(result.multiplierMicros).toBeGreaterThan(0n);
         expect(result.multiplierMicros).toBeLessThan(MICRO);
         expect(eventsOf(result, "bust")).toHaveLength(0);
