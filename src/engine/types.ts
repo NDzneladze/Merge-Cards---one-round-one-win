@@ -28,11 +28,11 @@ export type StackState = {
   /** Product of every purple boost that landed on this stack. 1 when none. Equals 2^purpleCount. */
   factor: number;
   /**
-   * True after this pile has collected `FULL_STACK_COUNT` cards once, grey included.
-   * Multiplies the pile by `FULL_STACK_FACTOR`. Never set twice, and cleared
-   * when a red card wipes the board.
+   * Total Stack Bonus for this pile: 1 (0–9 cards), 2 (10–19), 4 (20 or more).
+   * This replaces the previous factor. It is not multiplied by it, so 10 then 20
+   * is ×4, never ×8. Cleared when a red card wipes the board.
    */
-  fullStack: boolean;
+  stackBonusFactor: number;
 };
 
 /**
@@ -70,13 +70,24 @@ export type RoundEvent =
       totalMicros: bigint;
     }
   | {
-      type: "full_stack";
+      /**
+       * One pile crossed a stack milestone. Fired once at 10 cards (×2) and once
+       * at 20 (×4 replaces ×2). The landing event before this one still carries
+       * the pre-award total, so a grey trigger reads 0× and then the award.
+       */
+      type: "stack_bonus";
       cardId: string;
       color: StackColor;
-      /** Physical cards in the pile when it first reached the threshold, Grey included. Always the threshold. */
+      /** Physical cards in the pile. Equals `threshold`. */
       count: number;
-      /** The one-shot pile multiplier. 2 in the prototype. */
+      /** The milestone just crossed: 10 or 20. */
+      threshold: number;
+      /** Total stack factor before this award. 1 before 10, 2 before 20. */
+      previousFactor: number;
+      /** Total stack factor after this award. 2 at 10, 4 at 20. */
       factor: number;
+      /** Pile contribution before the new factor, the triggering card already included. */
+      beforeMicros: bigint;
       stackTotalMicros: bigint;
       totalMicros: bigint;
     }
@@ -89,7 +100,7 @@ export type RoundEvent =
       totalPacks: number;
     }
   | {
-      /** A grey 0× card joined a pile. It adds nothing to the sum and counts toward Stack Bonus. */
+      /** A grey 0× card joined a pile. It adds nothing to the sum and counts toward both stack milestones. */
       type: "grey";
       cardId: string;
       color: StackColor;
@@ -134,8 +145,10 @@ export type RoundResult = {
   lostMicros: bigint;
   /** Safe blank cards revealed. They pay 0× and join a pile. */
   greyCards: number;
-  /** Piles that unlocked Full Stack and still paid. Zero after a red card. */
-  fullStackPiles: number;
+  /** Piles still paying Stack ×2 or Stack ×4. Zero after a red card. */
+  stackBonusPiles: number;
+  /** Piles still paying the ×4 tier. A subset of `stackBonusPiles`. */
+  superStackPiles: number;
   /** The purchased stake is debited once. */
   stakeDebits: 1;
 };

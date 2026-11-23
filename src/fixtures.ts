@@ -41,6 +41,8 @@ export type FixtureId =
   | "showcase"
   | "purplecount"
   | "purplegrey"
+  | "stack20"
+  | "stack20grey"
   | "easy"
   | "hard";
 
@@ -122,6 +124,37 @@ export const FIXTURES: Record<FixtureId, Fixture> = {
     seed: "fixture-purplegrey",
     difficulty: "easy",
     script: [greyTo("blue"), greyTo("blue"), purple, b(1), g(0.5), g(0.5)],
+  },
+  /**
+   * Twenty greens of 0.20×. Purple after four of them. The 10th card awards
+   * Stack ×2 and the 20th upgrades it to Stack ×4 (32.00×, not ×8).
+   */
+  stack20: {
+    id: "stack20",
+    seed: "fixture-stack20",
+    difficulty: "medium",
+    script: [
+      extra, g(0.2), g(0.2), g(0.2), g(0.2), extra,
+      g(0.2), g(0.2), purple, g(0.2), g(0.2), g(0.2),
+      g(0.2), g(0.2), g(0.2), g(0.2), extra, g(0.2),
+      g(0.2), g(0.2), g(0.2), g(0.2), g(0.2), g(0.2),
+    ],
+  },
+  /**
+   * Grey is the 10th card and the 20th card. Eight 0.40× greens are 3.20×,
+   * one Purple makes 6.40×, Stack ×2 makes 12.80×, and the 20th grey upgrades
+   * that total to 25.60×. The grey itself pays nothing.
+   */
+  stack20grey: {
+    id: "stack20grey",
+    seed: "fixture-stack20grey",
+    difficulty: "easy",
+    script: [
+      extra, g(0.4), g(0.4), g(0.4), g(0.4), extra,
+      g(0.4), g(0.4), g(0.4), g(0.4), purple, greyTo("green"),
+      greyTo("green"), greyTo("green"), greyTo("green"), greyTo("green"), extra, greyTo("green"),
+      greyTo("green"), greyTo("green"), greyTo("green"), greyTo("green"), greyTo("green"), greyTo("green"),
+    ],
   },
   easy: {
     id: "easy",

@@ -1,11 +1,11 @@
-import { FULL_STACK_COUNT, FULL_STACK_FACTOR, PURPLE_FACTOR } from "../engine/config";
+import { FULL_STACK_COUNT, FULL_STACK_FACTOR, PURPLE_FACTOR, SUPER_STACK_COUNT, SUPER_STACK_FACTOR } from "../engine/config";
 import { Mark } from "./CardFace";
 
 const ROWS = [
   { tone: "green", name: "Green", note: "Small value" },
   { tone: "blue", name: "Blue", note: "Mid value" },
   { tone: "gold", name: "Gold", note: "High value" },
-  { tone: "grey", name: "Grey", note: "0× · joins a pile" },
+  { tone: "grey", name: "Grey", note: "0× · builds the pile" },
   { tone: "purple", name: "Purple", note: `×${PURPLE_FACTOR} biggest pile` },
   { tone: "extra", name: "+1 Pack", note: "Extra pack" },
   { tone: "red", name: "Red", note: "Bust · 0×" },
@@ -24,7 +24,10 @@ export function LegendRows() {
       ))}
       <li className="legend-row legend-bonus">
         <span className="legend-badge">Stack ×{FULL_STACK_FACTOR}</span>
-        <em>{FULL_STACK_COUNT} cards in one pile</em>
+        <span className="legend-badge is-super">Stack ×{SUPER_STACK_FACTOR}</span>
+        <em>
+          {FULL_STACK_COUNT} cards → ×{FULL_STACK_FACTOR} · {SUPER_STACK_COUNT} cards → ×{SUPER_STACK_FACTOR}
+        </em>
       </li>
     </ul>
   );

@@ -6,8 +6,8 @@ import {
   DEMO_CONFIG,
   DIFFICULTIES,
   DIFFICULTY_ORDER,
-  FULL_STACK_COUNT,
-  FULL_STACK_FACTOR,
+  STACK_MILESTONES,
+  SUPER_STACK_FACTOR,
   GOLD_VALUES,
   GREEN_VALUES,
   GREEN_VALUES_EASY,
@@ -17,6 +17,7 @@ import {
 } from "./config";
 import { drawKind, drawValue, rangeSteps, tableWeight, valueBounds, valueSupport, weightTotal } from "./draw";
 import { FEATURED_SEEDS } from "./featured";
+import { FIXTURES } from "../fixtures";
 import { boardTotal, stackTotal } from "./money";
 import { createRng } from "./rng";
 import { chooseBoostTarget, chooseGreyTarget, resolveRound, tierFor } from "./round";
@@ -69,7 +70,7 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValue
   expect(result.difficulty).toBe(config.difficulty);
   expect(result.colors).toEqual(config.colors);
   expect(result.stacks.map((stack) => stack.color)).toEqual(config.colors);
-  const stacks: StackState[] = config.colors.map((color) => ({ color, cards: [], factor: 1, fullStack: false }));
+  const stacks: StackState[] = config.colors.map((color) => ({ color, cards: [], factor: 1, stackBonusFactor: 1 }));
   for (const event of result.events) {
     if (bustSeen && event.type !== "round_end") {
       throw new Error(`Event ${event.type} followed the red card`);
@@ -118,7 +119,7 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValue
       expect(event.count).toBe(stack.cards.length);
       expect(event.stackTotalMicros).toBe(stackTotal(stack));
       expect(event.totalMicros).toBe(boardTotal(stacks));
-      // A grey adds 0×. If it is the 10th card, the bonus arrives on the next event, not this one.
+      // A grey adds 0×. If it crosses 10 or 20, the award arrives on the next event, not this one.
       expect(boardTotal(stacks)).toBe(before);
     }
     if (event.type === "stack_add") {
@@ -126,17 +127,22 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValue
       expect(event.stackTotalMicros).toBe(stackTotal(stack));
       expect(event.totalMicros).toBe(boardTotal(stacks));
     }
-    if (event.type === "full_stack") {
-      // Exactly once per pile, on the card that made it 10, right after that card's landing event.
+    if (event.type === "stack_bonus") {
+      // Once per milestone, on the card that crossed it, right after that card's landing event.
       const stack = stacks.find((entry) => entry.color === event.color)!;
-      expect(stack.fullStack).toBe(false);
-      expect(stack.cards.length).toBe(FULL_STACK_COUNT);
+      const milestone = STACK_MILESTONES.find((entry) => entry.count === event.threshold);
+      expect(milestone).toBeDefined();
+      expect(stack.stackBonusFactor).toBe(event.previousFactor);
+      expect(stack.cards.length).toBe(event.threshold);
       expect(stack.cards.at(-1)?.id).toBe(event.cardId);
+      expect(event.count).toBe(event.threshold);
+      expect(event.factor).toBe(milestone!.factor);
+      expect(event.factor).toBeGreaterThan(event.previousFactor);
+      expect(event.beforeMicros).toBe(stackTotal(stack));
       const before = stackTotal(stack);
-      stack.fullStack = true;
-      expect(event.count).toBe(FULL_STACK_COUNT);
-      expect(event.factor).toBe(FULL_STACK_FACTOR);
-      expect(stackTotal(stack)).toBe(before * BigInt(FULL_STACK_FACTOR));
+      stack.stackBonusFactor = event.factor;
+      // The new factor replaces the old one. 2 → 4 doubles again. It does not become ×8.
+      expect(stackTotal(stack)).toBe((before / BigInt(event.previousFactor)) * BigInt(event.factor));
       expect(event.stackTotalMicros).toBe(stackTotal(stack));
       expect(event.totalMicros).toBe(boardTotal(stacks));
     }
@@ -161,8 +167,9 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValue
     expect(result.tier).toBe("none");
     expect(result.netMicros).toBe(-BigInt(result.stake) * MICRO);
     expect(result.cancelledPacks).toBe(pending);
-    expect(result.stacks.every((stack) => stack.cards.length === 0 && stack.fullStack === false && stack.factor === 1)).toBe(true);
-    expect(result.fullStackPiles).toBe(0);
+    expect(result.stacks.every((stack) => stack.cards.length === 0 && stack.stackBonusFactor === 1 && stack.factor === 1)).toBe(true);
+    expect(result.stackBonusPiles).toBe(0);
+    expect(result.superStackPiles).toBe(0);
   } else {
     // Every earned pack was opened: the queue is empty on a safe finish.
     expect(pending).toBe(0);
@@ -171,7 +178,8 @@ function assertWellFormed(result: RoundResult, config = DEMO_CONFIG, strictValue
     expect(reveals).toBe(config.cardsPerPack * opened);
     expect(result.multiplierMicros).toBe(boardTotal(result.stacks));
     expect(result.lostMicros).toBe(0n);
-    expect(result.fullStackPiles).toBe(result.stacks.filter((stack) => stack.fullStack).length);
+    expect(result.stackBonusPiles).toBe(result.stacks.filter((stack) => stack.stackBonusFactor >= 2).length);
+    expect(result.superStackPiles).toBe(result.stacks.filter((stack) => stack.stackBonusFactor >= 4).length);
     expect(result.greyCards).toBe(result.events.filter((event) => event.type === "grey").length);
     if (result.multiplierMicros === 0n) expect(result.tier).toBe("none");
     else if (result.multiplierMicros < MICRO) expect(result.tier).toBe("return");
@@ -200,8 +208,13 @@ describe("config", () => {
       expect(mode.weights.extra).toBeGreaterThan(0);
       expect(mode.weights.grey).toBeGreaterThan(0);
       expect(mode.weights.grey).not.toBe(mode.weights.green);
-      // v0.11 did not move Red. These are the v0.10 per-mille weights.
+      // v0.12 did not move Red. These are the v0.10 per-mille weights.
       expect(mode.weights.red).toBe(id === "easy" ? 78 : id === "medium" ? 96 : 290);
+      // Grey is noticeably more common than v0.11 (88 / 94 / 50) and stays inside the exploration band.
+      const greyBand = id === "hard" ? [90, 130] : [160, 200];
+      expect(mode.weights.grey).toBeGreaterThanOrEqual(greyBand[0]!);
+      expect(mode.weights.grey).toBeLessThanOrEqual(greyBand[1]!);
+      expect(mode.weights.grey).toBeGreaterThan(id === "hard" ? 50 : 94);
       expect(configFor(id).maxPacks).toBe(6);
       expect(configFor(id).cardsPerPack).toBe(6);
     }
@@ -432,7 +445,7 @@ describe("resolveRound", () => {
         expect(example.difficulty).toBe("easy");
         expect(result.outcome).toBe("resolved");
         expect(result.tier).toBe("return");
-        expect(result.multiplierMicros).toBe(700_000n);
+        expect(result.multiplierMicros).toBe(760_000n);
       }
       if (example.id === "bust") {
         expect(result.outcome).toBe("bust");
@@ -467,14 +480,14 @@ describe("resolveRound", () => {
       }
       if (example.id === "stack") {
         expect(result.outcome).toBe("resolved");
-        expect(result.fullStackPiles).toBe(1);
-        expect(result.stacks.some((stack) => stack.fullStack && stack.factor === 1)).toBe(true);
-        expect(eventsOf(result, "full_stack")).toHaveLength(1);
+        expect(result.stackBonusPiles).toBe(1);
+        expect(result.stacks.some((stack) => stack.stackBonusFactor >= 2 && stack.factor === 1)).toBe(true);
+        expect(eventsOf(result, "stack_bonus")).toHaveLength(1);
       }
       if (example.id === "stackPurple") {
         expect(result.outcome).toBe("resolved");
-        expect(result.stacks.some((stack) => stack.fullStack && stack.factor >= 2)).toBe(true);
-        expect(eventsOf(result, "full_stack")).toHaveLength(1);
+        expect(result.stacks.some((stack) => stack.stackBonusFactor >= 2 && stack.factor >= 2)).toBe(true);
+        expect(eventsOf(result, "stack_bonus")).toHaveLength(1);
         expect(eventsOf(result, "boost").length).toBeGreaterThan(0);
       }
     }
@@ -501,7 +514,7 @@ describe("+1 PACK chain", () => {
     expect(eventsOf(result, "pack_earned")).toEqual([{ type: "pack_earned", cardId: "c0002", pending: 1, totalPacks: 2 }]);
     expect(eventsOf(result, "card_reveal")).toHaveLength(12);
     // 11 greens cross Full Stack once: (5 × 0.5 + 6 × 0.1) × 2
-    expect(result.fullStackPiles).toBe(1);
+    expect(result.stackBonusPiles).toBe(1);
     expect(result.multiplierMicros).toBe(6_200_000n);
     expect(result.stakeDebits).toBe(1);
   });
@@ -517,7 +530,7 @@ describe("+1 PACK chain", () => {
     expect(result.earnedPacks).toBe(2);
     expect(eventsOf(result, "pack_earned").map((event) => (event.type === "pack_earned" ? event.totalPacks : 0))).toEqual([2, 3]);
     // 16 greens, one Full Stack: (5 × 0.2 + 5 × 0.3 + 6 × 0.4) × 2
-    expect(eventsOf(result, "full_stack")).toHaveLength(1);
+    expect(eventsOf(result, "stack_bonus")).toHaveLength(1);
     expect(result.multiplierMicros).toBe(9_800_000n);
   });
 
@@ -527,9 +540,11 @@ describe("+1 PACK chain", () => {
     expect(result.openedPacks).toBe(4);
     expect(eventsOf(result, "pack_earned").map((event) => (event.type === "pack_earned" ? event.pending : 0))).toEqual([1, 2, 3]);
     expect(eventsOf(result, "pack_open").map((event) => (event.type === "pack_open" ? event.pending : -1))).toEqual([0, 2, 1, 0]);
-    // 21 greens, still one Full Stack: (3 × 1.00 + 18 × 0.10) × 2
-    expect(eventsOf(result, "full_stack")).toHaveLength(1);
-    expect(result.multiplierMicros).toBe(9_600_000n);
+    // 21 greens cross both milestones: (3 × 1.00 + 18 × 0.10) × 4. The ×4 replaces ×2.
+    expect(eventsOf(result, "stack_bonus")).toHaveLength(2);
+    expect(eventsOf(result, "stack_bonus").map((event) => (event.type === "stack_bonus" ? event.factor : 0))).toEqual([2, 4]);
+    expect(result.multiplierMicros).toBe(19_200_000n);
+    expect(result.superStackPiles).toBe(1);
   });
 
   it("stacks, their values and purple boosts persist across packs", () => {
@@ -609,10 +624,10 @@ describe("+1 PACK chain", () => {
 });
 
 describe("chooseBoostTarget", () => {
-  const stack = (color: StackState["color"], values: number[], factor = 1, fullStack = false, greys = 0): StackState => ({
+  const stack = (color: StackState["color"], values: number[], factor = 1, stackBonusFactor = 1, greys = 0): StackState => ({
     color,
     factor,
-    fullStack,
+    stackBonusFactor,
     cards: [
       ...values.map((value, index) => ({
         kind: "value" as const,
@@ -627,27 +642,27 @@ describe("chooseBoostTarget", () => {
   it("picks the pile with the most physical cards, Grey included", () => {
     expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1]), stack("blue", [3, 3]), stack("gold", [15])])).toBe("green");
     // Green 3 prizes + 2 greys = 5 cards. Blue 4 prizes worth 12×. Physical count wins.
-    expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, false, 2), stack("blue", [3, 3, 3, 3])])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, 1, 2), stack("blue", [3, 3, 3, 3])])).toBe("green");
     // A pile of only greys is occupied and can take the boost.
-    expect(chooseBoostTarget([stack("green", []), stack("blue", [], 1, false, 2), stack("gold", [])])).toBe("blue");
+    expect(chooseBoostTarget([stack("green", []), stack("blue", [], 1, 1, 2), stack("gold", [])])).toBe("blue");
   });
 
   it("breaks a physical-count tie by the highest current total, including existing boosts and Stack Bonus", () => {
     expect(chooseBoostTarget([stack("green", [0.9, 0.9]), stack("blue", [1, 1]), stack("gold", [])])).toBe("blue");
     expect(chooseBoostTarget([stack("green", [0.9, 0.9], 4), stack("blue", [1, 1]), stack("gold", [])])).toBe("green");
     // Same count. Stack Bonus doubles blue's total and wins the tie.
-    expect(chooseBoostTarget([stack("green", [1, 1]), stack("blue", [1, 1], 1, true), stack("gold", [])])).toBe("blue");
+    expect(chooseBoostTarget([stack("green", [1, 1]), stack("blue", [1, 1], 1, 2), stack("gold", [])])).toBe("blue");
     // A longer pile still beats a shorter one even when that shorter pile is already doubled.
-    expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, true), stack("blue", [5, 5])])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.1, 0.1, 0.1], 1, 2), stack("blue", [5, 5])])).toBe("green");
     // Two cards each. The grey does not add value, so the richer pile wins the tie.
-    expect(chooseBoostTarget([stack("green", [0.4], 1, false, 1), stack("blue", [0.3, 0.3])])).toBe("blue");
-    expect(chooseBoostTarget([stack("green", [1], 1, false, 1), stack("blue", [0.4], 1, true, 1)])).toBe("green");
-    expect(chooseBoostTarget([stack("green", [0.3], 1, false, 1), stack("blue", [0.4], 1, true, 1)])).toBe("blue");
+    expect(chooseBoostTarget([stack("green", [0.4], 1, 1, 1), stack("blue", [0.3, 0.3])])).toBe("blue");
+    expect(chooseBoostTarget([stack("green", [1], 1, 1, 1), stack("blue", [0.4], 1, 2, 1)])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.3], 1, 1, 1), stack("blue", [0.4], 1, 2, 1)])).toBe("blue");
   });
 
   it("breaks a full tie by the leftmost pile and ignores empty piles while any pile has cards", () => {
     expect(chooseBoostTarget([stack("green", [0.5, 0.5]), stack("blue", [0.5, 0.5]), stack("gold", [])])).toBe("green");
-    expect(chooseBoostTarget([stack("green", [0.5], 1, false, 1), stack("blue", [0.5], 1, false, 1)])).toBe("green");
+    expect(chooseBoostTarget([stack("green", [0.5], 1, 1, 1), stack("blue", [0.5], 1, 1, 1)])).toBe("green");
     expect(chooseBoostTarget([stack("green", []), stack("blue", [1]), stack("gold", [])])).toBe("blue");
   });
 
@@ -689,7 +704,7 @@ describe("grey card", () => {
     expect(eventsOf(result, "boost")).toHaveLength(1);
     expect(eventsOf(result, "pack_earned")).toHaveLength(0);
     expect(eventsOf(result, "bust")).toHaveLength(0);
-    expect(eventsOf(result, "full_stack")).toHaveLength(0);
+    expect(eventsOf(result, "stack_bonus")).toHaveLength(0);
     // green (0.5 + 0.2) × 2 + blue 1. Greys add nothing.
     expect(result.multiplierMicros).toBe(2_400_000n);
     expect(result.tier).toBe("win");
@@ -699,7 +714,7 @@ describe("grey card", () => {
     const stack = (color: StackColor, count: number): StackState => ({
       color,
       factor: 1,
-      fullStack: false,
+      stackBonusFactor: 1,
       cards: Array.from({ length: count }, (_, index) => ({ kind: "value" as const, id: `${color}${index}`, color, valueMicros: 100_000n })),
     });
     const picks = (stacks: StackState[], seed: string): Set<StackColor> => {
@@ -713,7 +728,7 @@ describe("grey card", () => {
     expect([...picks([stack("green", 0), stack("blue", 2), stack("gold", 1)], "c")].sort()).toEqual(["blue", "gold"]);
     expect([...picks([stack("green", 0), stack("blue", 0), stack("gold", 3)], "d")]).toEqual(["gold"]);
     // A pile that holds only a grey is non-empty too.
-    const onlyGrey: StackState = { color: "blue", factor: 1, fullStack: false, cards: [{ kind: "grey", id: "x" }] };
+    const onlyGrey: StackState = { color: "blue", factor: 1, stackBonusFactor: 1, cards: [{ kind: "grey", id: "x" }] };
     expect([...picks([stack("green", 0), onlyGrey, stack("gold", 0)], "e")]).toEqual(["blue"]);
 
     for (const id of DIFFICULTY_ORDER) {
@@ -830,7 +845,7 @@ describe("grey card", () => {
   });
 });
 
-describe("full stack", () => {
+describe("stack milestones", () => {
   it("counts grey 0× cards toward the 10, and never purple, red or +1 PACK", () => {
     // 7 greens + 3 greys in the green pile = 10 cards. Two +1 PACKs and a purple are dealt too.
     const mixed = resolveRound({
@@ -843,14 +858,14 @@ describe("full stack", () => {
     expect(green.cards).toHaveLength(10);
     expect(valueCards(green)).toBe(7);
     expect(greysIn(green)).toBe(3);
-    expect(green).toMatchObject({ fullStack: true, factor: 2 });
+    expect(green).toMatchObject({ stackBonusFactor: 2, factor: 2 });
     // The 10th card is a grey. It unlocks the bonus and adds no value of its own.
-    const unlock = eventsOf(mixed, "full_stack");
+    const unlock = eventsOf(mixed, "stack_bonus");
     expect(unlock).toHaveLength(1);
-    expect(unlock[0]).toMatchObject({ cardId: "c0012", color: "green", count: 10, factor: 2 });
+    expect(unlock[0]).toMatchObject({ cardId: "c0012", color: "green", count: 10, threshold: 10, previousFactor: 1, factor: 2 });
     // The grey's own landing still reports the pre-bonus total. The bonus event doubles it.
     expect(mixed.events.at(-3)).toMatchObject({ type: "grey", color: "green", count: 10, stackTotalMicros: 2_800_000n });
-    expect(mixed.events.at(-2)).toMatchObject({ type: "full_stack", stackTotalMicros: 5_600_000n });
+    expect(mixed.events.at(-2)).toMatchObject({ type: "stack_bonus", stackTotalMicros: 5_600_000n });
     // 7 × 0.20 = 1.40 → purple ×2 = 2.80 → Stack Bonus ×2 = 5.60
     expect(mixed.multiplierMicros).toBe(5_600_000n);
 
@@ -862,8 +877,8 @@ describe("full stack", () => {
     });
     assertWellFormed(short);
     expect(short.stacks.find((stack) => stack.color === "green")!.cards).toHaveLength(9);
-    expect(eventsOf(short, "full_stack")).toHaveLength(0);
-    expect(short.fullStackPiles).toBe(0);
+    expect(eventsOf(short, "stack_bonus")).toHaveLength(0);
+    expect(short.stackBonusPiles).toBe(0);
     // 7 × 0.20 × purple 4, no Stack Bonus
     expect(short.multiplierMicros).toBe(5_600_000n);
   });
@@ -878,8 +893,19 @@ describe("full stack", () => {
     assertWellFormed(result, config("hard"));
     const boost = eventsOf(result, "boost")[0];
     expect(boost).toMatchObject({ color: "blue", stackTotalMicros: 6_400_000n });
-    expect(eventsOf(result, "full_stack")).toEqual([
-      { type: "full_stack", cardId: "c0012", color: "blue", count: 10, factor: 2, stackTotalMicros: 12_800_000n, totalMicros: 12_800_000n },
+    expect(eventsOf(result, "stack_bonus")).toEqual([
+      {
+        type: "stack_bonus",
+        cardId: "c0012",
+        color: "blue",
+        count: 10,
+        threshold: 10,
+        previousFactor: 1,
+        factor: 2,
+        beforeMicros: 6_400_000n,
+        stackTotalMicros: 12_800_000n,
+        totalMicros: 12_800_000n,
+      },
     ]);
     expect(result.multiplierMicros).toBe(12_800_000n);
     expect(result.tier).toBe("big");
@@ -892,25 +918,26 @@ describe("full stack", () => {
       script: [extra, ...Array.from({ length: 10 }, () => greyTo("blue")), g(0.5)],
     });
     assertWellFormed(result);
-    expect(result.stacks.find((stack) => stack.color === "blue")).toMatchObject({ fullStack: true });
-    expect(eventsOf(result, "full_stack")).toHaveLength(1);
+    expect(result.stacks.find((stack) => stack.color === "blue")).toMatchObject({ stackBonusFactor: 2 });
+    expect(eventsOf(result, "stack_bonus")).toHaveLength(1);
     expect(result.multiplierMicros).toBe(500_000n);
   });
 
-  it("triggers once on the 10th value card and does not trigger again at 11 or 20", () => {
+  it("awards ×2 once at 10, upgrades ×2 to ×4 once at 20, and stays ×4 after that", () => {
     const ten = resolveRound({
       seed: "fs-10",
       stake: 1,
       script: [extra, ...greens(5), ...greens(5), g(0.1)],
     });
     assertWellFormed(ten);
-    expect(eventsOf(ten, "full_stack")).toHaveLength(1);
-    expect(eventsOf(ten, "full_stack")[0]).toMatchObject({ color: "green", count: 10, factor: 2 });
-    expect(ten.stacks.find((stack) => stack.color === "green")).toMatchObject({ fullStack: true, factor: 1 });
+    expect(eventsOf(ten, "stack_bonus")).toHaveLength(1);
+    expect(eventsOf(ten, "stack_bonus")[0]).toMatchObject({ color: "green", count: 10, threshold: 10, previousFactor: 1, factor: 2 });
+    expect(ten.stacks.find((stack) => stack.color === "green")).toMatchObject({ stackBonusFactor: 2, factor: 1 });
     expect(ten.stacks.find((stack) => stack.color === "green")!.cards).toHaveLength(11);
-    // 11 × 0.10 × full stack 2. The 11th card does not unlock a second time.
+    // 11 × 0.10 × stack 2. The 11th card does not award again.
     expect(ten.multiplierMicros).toBe(2_200_000n);
-    expect(ten.fullStackPiles).toBe(1);
+    expect(ten.stackBonusPiles).toBe(1);
+    expect(ten.superStackPiles).toBe(0);
 
     const twenty = resolveRound({
       seed: "fs-20",
@@ -919,8 +946,29 @@ describe("full stack", () => {
     });
     assertWellFormed(twenty);
     expect(twenty.stacks.find((stack) => stack.color === "green")!.cards).toHaveLength(21);
-    expect(eventsOf(twenty, "full_stack")).toHaveLength(1);
-    expect(twenty.multiplierMicros).toBe(4_200_000n);
+    expect(eventsOf(twenty, "stack_bonus")).toHaveLength(2);
+    expect(eventsOf(twenty, "stack_bonus")[1]).toMatchObject({
+      count: 20,
+      threshold: 20,
+      previousFactor: 2,
+      factor: SUPER_STACK_FACTOR,
+      beforeMicros: 4_000_000n,
+      stackTotalMicros: 8_000_000n,
+    });
+    // 21 × 0.10 × 4. Not 21 × 0.10 × 8.
+    expect(twenty.multiplierMicros).toBe(8_400_000n);
+    expect(twenty.superStackPiles).toBe(1);
+
+    const past = resolveRound({
+      seed: "fs-30",
+      stake: 1,
+      script: [extra, extra, extra, extra, extra, ...greens(31)],
+    });
+    assertWellFormed(past);
+    expect(past.stacks.find((stack) => stack.color === "green")!.cards.length).toBeGreaterThanOrEqual(30);
+    expect(eventsOf(past, "stack_bonus")).toHaveLength(2);
+    expect(past.stacks.find((stack) => stack.color === "green")!.stackBonusFactor).toBe(4);
+    expect(past.multiplierMicros).toBe(BigInt(past.stacks[0]!.cards.length) * 100_000n * 4n);
   });
 
   it("unlocks two piles independently and keeps the bonus across a later pack", () => {
@@ -944,12 +992,12 @@ describe("full stack", () => {
     const blue = result.stacks.find((stack) => stack.color === "blue")!;
     expect(green.cards).toHaveLength(10);
     expect(blue.cards).toHaveLength(11);
-    expect(green.fullStack).toBe(true);
-    expect(blue.fullStack).toBe(true);
-    expect(eventsOf(result, "full_stack").map((event) => (event.type === "full_stack" ? event.color : ""))).toEqual(["blue", "green"]);
+    expect(green.stackBonusFactor).toBe(2);
+    expect(blue.stackBonusFactor).toBe(2);
+    expect(eventsOf(result, "stack_bonus").map((event) => (event.type === "stack_bonus" ? event.color : ""))).toEqual(["blue", "green"]);
     // green 1.10 × 2 + blue 11 × 2. The green card after the unlock is still doubled.
     expect(result.multiplierMicros).toBe(24_200_000n);
-    expect(result.fullStackPiles).toBe(2);
+    expect(result.stackBonusPiles).toBe(2);
   });
 
   it("compounds the same way whether purple lands before or after the unlock", () => {
@@ -968,10 +1016,110 @@ describe("full stack", () => {
     // 10 × 0.10 × purple 2 × full stack 2
     expect(after.multiplierMicros).toBe(4_000_000n);
     expect(before.multiplierMicros).toBe(4_000_000n);
-    expect(after.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 2, fullStack: true });
-    expect(before.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 2, fullStack: true });
-    expect(eventsOf(after, "full_stack")).toHaveLength(1);
-    expect(eventsOf(before, "full_stack")).toHaveLength(1);
+    expect(after.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 2, stackBonusFactor: 2 });
+    expect(before.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 2, stackBonusFactor: 2 });
+    expect(eventsOf(after, "stack_bonus")).toHaveLength(1);
+    expect(eventsOf(before, "stack_bonus")).toHaveLength(1);
+  });
+
+  it("lets a grey be the 10th and the 20th card, and keeps a grey-only ×4 pile at 0×", () => {
+    const hit = resolveRound({ seed: "fixture-stack20grey", stake: 1, difficulty: "easy", script: FIXTURES.stack20grey.script });
+    assertWellFormed(hit, config("easy"));
+    const awards = eventsOf(hit, "stack_bonus");
+    expect(awards).toHaveLength(2);
+    expect(awards[0]).toMatchObject({ threshold: 10, previousFactor: 1, factor: 2, beforeMicros: 6_400_000n, stackTotalMicros: 12_800_000n });
+    expect(awards[1]).toMatchObject({ threshold: 20, previousFactor: 2, factor: 4, beforeMicros: 12_800_000n, stackTotalMicros: 25_600_000n });
+    expect(eventsOf(hit, "grey").some((event) => event.type === "grey" && event.cardId === (awards[0]?.type === "stack_bonus" ? awards[0].cardId : ""))).toBe(true);
+    expect(eventsOf(hit, "grey").some((event) => event.type === "grey" && event.cardId === (awards[1]?.type === "stack_bonus" ? awards[1].cardId : ""))).toBe(true);
+    // 3.20 × purple 2 × stack 4 = 25.60. Not 51.20.
+    expect(hit.multiplierMicros).toBe(25_600_000n);
+    expect(hit.stacks.find((stack) => stack.color === "green")).toMatchObject({ stackBonusFactor: 4, factor: 2 });
+
+    const blank = resolveRound({
+      seed: "sb-blank-20",
+      stake: 1,
+      difficulty: "easy",
+      script: [extra, extra, extra, ...Array.from({ length: 20 }, () => greyTo("blue")), b(1)],
+    });
+    assertWellFormed(blank, config("easy"));
+    const blue = blank.stacks.find((stack) => stack.color === "blue")!;
+    expect(blue.cards.filter((card) => card.kind === "grey")).toHaveLength(20);
+    expect(blue.stackBonusFactor).toBe(4);
+    expect(eventsOf(blank, "stack_bonus").map((event) => (event.type === "stack_bonus" ? event.stackTotalMicros : 0n))).toEqual([0n, 0n]);
+    // The value card arrives after both tiers and takes ×4. 1.00 × 4.
+    expect(blue.cards.at(-1)?.kind).toBe("value");
+    expect(blank.multiplierMicros).toBe(4_000_000n);
+  });
+
+  it("compounds purple with each tier, including a boost that landed on greys before any value", () => {
+    const early = resolveRound({
+      seed: "tier-early",
+      stake: 1,
+      script: [purple, extra, extra, extra, ...greens(20)],
+    });
+    const late = resolveRound({
+      seed: "tier-late",
+      stake: 1,
+      script: [extra, extra, extra, ...greens(20), purple],
+    });
+    assertWellFormed(early);
+    assertWellFormed(late);
+    // 20 × 0.10 × purple 2 × stack 4 = 16.00, whichever order the purple arrived.
+    expect(early.multiplierMicros).toBe(16_000_000n);
+    expect(late.multiplierMicros).toBe(16_000_000n);
+    expect(early.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 2, stackBonusFactor: 4 });
+
+    const twice = resolveRound({
+      seed: "tier-twice",
+      stake: 1,
+      script: [purple, extra, extra, extra, extra, ...greens(8, 0.4), purple, ...Array.from({ length: 16 }, () => greyTo("green"))],
+    });
+    assertWellFormed(twice);
+    // 3.20 × purple 4 × stack 4 = 51.20. Two purples and the ×4 tier are allowed to compound.
+    expect(twice.multiplierMicros).toBe(51_200_000n);
+    expect(twice.stacks.find((stack) => stack.color === "green")).toMatchObject({ factor: 4, stackBonusFactor: 4 });
+
+    const waiting = resolveRound({
+      seed: "tier-wait",
+      stake: 1,
+      difficulty: "easy",
+      script: [
+        extra,
+        extra,
+        extra,
+        extra,
+        ...Array.from({ length: 20 }, () => greyTo("blue")),
+        purple,
+        b(1),
+        ...Array.from({ length: 4 }, () => greyTo("blue")),
+      ],
+    });
+    assertWellFormed(waiting, config("easy"));
+    const boost = eventsOf(waiting, "boost")[0];
+    expect(boost).toMatchObject({ color: "blue", stackFactor: 2, stackTotalMicros: 0n });
+    expect(waiting.stacks.find((stack) => stack.color === "blue")!.stackBonusFactor).toBe(4);
+    // 1.00 × purple 2 × stack 4.
+    expect(waiting.multiplierMicros).toBe(8_000_000n);
+  });
+
+  it("a red card after Stack ×4 wipes the bonus and cancels the packs still waiting", () => {
+    const result = resolveRound({
+      seed: "fs-red-4",
+      stake: 5,
+      script: [extra, extra, extra, extra, extra, ...greens(20), red],
+    });
+    assertWellFormed(result);
+    expect(eventsOf(result, "stack_bonus").map((event) => (event.type === "stack_bonus" ? event.factor : 0))).toEqual([2, 4]);
+    expect(result.outcome).toBe("bust");
+    expect(result.multiplierMicros).toBe(0n);
+    expect(result.payoutMicros).toBe(0n);
+    expect(result.stackBonusPiles).toBe(0);
+    expect(result.superStackPiles).toBe(0);
+    expect(result.stacks.every((stack) => stack.stackBonusFactor === 1 && stack.cards.length === 0)).toBe(true);
+    expect(result.cancelledPacks).toBeGreaterThan(0);
+    expect(result.stakeDebits).toBe(1);
+    expect(eventsOf(result, "round_end")).toHaveLength(1);
+    expect(result.events.at(-1)?.type).toBe("round_end");
   });
 
   it("a red card after Full Stack wipes the bonus and cancels the packs still waiting", () => {
@@ -981,11 +1129,11 @@ describe("full stack", () => {
       script: [extra, extra, ...greens(4), extra, ...greens(5), g(0.1), extra, red],
     });
     assertWellFormed(result);
-    expect(eventsOf(result, "full_stack")).toHaveLength(1);
+    expect(eventsOf(result, "stack_bonus")).toHaveLength(1);
     expect(result.outcome).toBe("bust");
     expect(result.multiplierMicros).toBe(0n);
-    expect(result.fullStackPiles).toBe(0);
-    expect(result.stacks.every((stack) => stack.fullStack === false && stack.cards.length === 0)).toBe(true);
+    expect(result.stackBonusPiles).toBe(0);
+    expect(result.stacks.every((stack) => stack.stackBonusFactor === 1 && stack.cards.length === 0)).toBe(true);
     expect(result.cancelledPacks).toBe(2);
     expect(result.lostMicros).toBe(2_000_000n);
     expect(result.payoutMicros).toBe(0n);

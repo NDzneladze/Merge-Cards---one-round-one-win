@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useState } from "react";
-import { FULL_STACK_COUNT, FULL_STACK_FACTOR } from "../engine/config";
+import { FULL_STACK_COUNT, FULL_STACK_FACTOR, SUPER_STACK_COUNT, SUPER_STACK_FACTOR } from "../engine/config";
 import type { Card, StackColor } from "../engine/types";
 import { formatMultiplier } from "../engine/money";
 import { labelColor, type Burst, type StackCard, type StackView } from "../playback/scene";
@@ -11,7 +11,7 @@ type Props = {
   colors: readonly StackColor[];
   stacks: Record<StackColor, StackView>;
   dead: boolean;
-  /** Compact n/10 marker. Only while the paid round is still unfolding. */
+  /** Lights the "close to a milestone" pulse. The goals themselves stay visible. */
   showProgress: boolean;
   /** The short label for the card that just landed. Shown over the pile it belongs to. */
   burst: Burst | null;
@@ -19,8 +19,8 @@ type Props = {
   registerSlot: (color: StackColor, element: HTMLDivElement | null) => void;
 };
 
-/** From this many cards the progress marker lights up: the bonus is close. */
-const NEAR_BONUS = FULL_STACK_COUNT - 3;
+/** A milestone is "close" in the last three cards before 10 or before 20. */
+const NEAR_BONUS = 3;
 
 /**
  * One pile per eligible colour. The front card is the real face. Four older
@@ -52,6 +52,44 @@ function faceOf(card: StackCard, color: StackColor): Card {
 
 type PileProps = { stack: StackView; showProgress: boolean; burst: Burst | null; tempo: number };
 
+/** Two goals, always: 10 cards → ×2, 20 cards → ×4. The bar runs to 20, not to 10. */
+function MilestoneRail({ color, count, factor, near, hot }: { color: StackColor; count: number; factor: number; near: boolean; hot: boolean }) {
+  const capped = Math.min(count, SUPER_STACK_COUNT);
+  const goal = factor >= FULL_STACK_FACTOR ? SUPER_STACK_COUNT : FULL_STACK_COUNT;
+  const fraction = factor >= SUPER_STACK_FACTOR ? `${SUPER_STACK_COUNT}/${SUPER_STACK_COUNT}` : `${Math.min(count, goal)}/${goal}`;
+  const aria =
+    factor >= SUPER_STACK_FACTOR
+      ? `${count} cards. Stack ×${SUPER_STACK_FACTOR} active. Max tier.`
+      : factor >= FULL_STACK_FACTOR
+        ? `${count} of ${SUPER_STACK_COUNT} cards. Stack ×${FULL_STACK_FACTOR} active. 20 cards → ×${SUPER_STACK_FACTOR}.`
+        : `${count} of ${FULL_STACK_COUNT} cards toward Stack ×${FULL_STACK_FACTOR}. 20 cards → ×${SUPER_STACK_FACTOR}.`;
+  return (
+    <div
+      className={`pile-mile ${near ? "is-near" : ""} ${factor >= FULL_STACK_FACTOR ? "is-tier2" : ""} ${factor >= SUPER_STACK_FACTOR ? "is-tier4" : ""} ${hot ? "is-hot" : ""}`}
+      data-testid={`milestones-${color}`}
+    >
+      <div className="pile-mile-goals">
+        {factor >= FULL_STACK_FACTOR ? (
+          <span className={`pile-seal ${factor >= SUPER_STACK_FACTOR ? "is-super" : ""}`} data-testid={`fullstack-${color}`}>
+            Stack ×{factor >= SUPER_STACK_FACTOR ? SUPER_STACK_FACTOR : FULL_STACK_FACTOR}
+          </span>
+        ) : (
+          <span data-testid={`goal10-${color}`}>10→×{FULL_STACK_FACTOR}</span>
+        )}
+        <b className={`pile-progress ${near ? "is-near" : ""}`} data-testid={`progress-${color}`} aria-label={aria}>
+          {fraction}
+        </b>
+        <span data-testid={`goal20-${color}`} className={factor >= SUPER_STACK_FACTOR ? "is-done" : ""}>
+          {factor >= SUPER_STACK_FACTOR ? "MAX" : `20→×${SUPER_STACK_FACTOR}`}
+        </span>
+      </div>
+      <div className="pile-mile-bar" style={{ ["--fill" as string]: `${(capped / SUPER_STACK_COUNT) * 100}%` }} aria-hidden="true">
+        <i />
+      </div>
+    </div>
+  );
+}
+
 const Pile = forwardRef<HTMLDivElement, PileProps>(function Pile({ stack, showProgress, burst, tempo }, ref) {
   const live = stack.cards.filter((card) => card.state !== "dying");
   const boosted = stack.factor > 1;
@@ -59,19 +97,28 @@ const Pile = forwardRef<HTMLDivElement, PileProps>(function Pile({ stack, showPr
   const occupied = stack.cards.length > 0;
   const count = stack.cards.length;
   const greys = stack.cards.filter((card) => card.kind === "grey").length;
-  const progress = showProgress && !stack.fullStack && live.length > 0;
-  const near = progress && count >= NEAR_BONUS;
-  const shownTotal = useCountUp(stack.totalMicros, stack.preBonusMicros, stack.bonusHot, stack.fullStackKey, COUNT_UP_MS * tempo);
+  const tier = stack.stackBonusFactor;
+  const nextAt = tier >= SUPER_STACK_FACTOR ? null : tier >= FULL_STACK_FACTOR ? SUPER_STACK_COUNT : FULL_STACK_COUNT;
+  const near = showProgress && nextAt !== null && count >= nextAt - NEAR_BONUS && count < nextAt;
+  const shownTotal = useCountUp(stack.totalMicros, stack.preBonusMicros, stack.bonusHot, stack.stackBonusKey, COUNT_UP_MS * tempo);
   const totalLabel = occupied || boosted ? formatMultiplier(stack.totalMicros) : "empty";
   const shown = Math.min(stack.cards.length, VISIBLE_FACES);
+  const tierLabel =
+    tier >= SUPER_STACK_FACTOR
+      ? `, Stack Bonus ×${SUPER_STACK_FACTOR}, max tier`
+      : tier >= FULL_STACK_FACTOR
+        ? `, Stack Bonus ×${FULL_STACK_FACTOR}, next ${SUPER_STACK_COUNT} cards ×${SUPER_STACK_FACTOR}`
+        : "";
+  const superHot = stack.bonusHot && tier >= SUPER_STACK_FACTOR;
   return (
     <section
-      className={`pile tone-${stack.color} ${stack.hot ? "is-hot" : ""} ${occupied ? "" : "is-empty"} ${boosted ? "is-boosted" : ""} ${stack.fullStack ? "is-full" : ""} ${stack.bonusHot ? "is-bonus-hot" : ""}`}
-      aria-label={`${name} pile, ${count === 1 ? "1 card" : `${count} cards`}, total ${totalLabel}${stack.fullStack ? `, Stack Bonus ×${FULL_STACK_FACTOR}` : ""}`}
+      className={`pile tone-${stack.color} ${stack.hot ? "is-hot" : ""} ${occupied ? "" : "is-empty"} ${boosted ? "is-boosted" : ""} ${tier >= FULL_STACK_FACTOR ? "is-full" : ""} ${tier >= SUPER_STACK_FACTOR ? "is-super" : ""} ${stack.bonusHot ? "is-bonus-hot" : ""} ${superHot ? "is-super-hot" : ""}`}
+      aria-label={`${name} pile, ${count === 1 ? "1 card" : `${count} cards`}, total ${totalLabel}${tierLabel}`}
       data-testid={`pile-${stack.color}`}
       data-count={count}
       data-greys={greys}
       data-shown={shown}
+      data-tier={tier}
     >
       {burst ? (
         <p key={burst.id} className={`burst tone-${burst.tone} color-${stack.color}`} aria-hidden="true">
@@ -86,11 +133,6 @@ const Pile = forwardRef<HTMLDivElement, PileProps>(function Pile({ stack, showPr
             ×{stack.factor}
           </span>
         ) : null}
-        {stack.fullStack ? (
-          <span key={stack.fullStackKey ?? "seal"} className="pile-seal" data-testid={`fullstack-${stack.color}`}>
-            Stack ×{FULL_STACK_FACTOR}
-          </span>
-        ) : null}
       </header>
       <div className="pile-well" style={{ ["--n" as string]: Math.max(stack.cards.length, 1) }}>
         <div className="pile-slot" ref={ref}>
@@ -100,7 +142,7 @@ const Pile = forwardRef<HTMLDivElement, PileProps>(function Pile({ stack, showPr
             </div>
           )}
         </div>
-        {stack.fullStack ? <div key={`halo-${stack.fullStackKey ?? ""}`} className="pile-halo" aria-hidden="true" /> : null}
+        {tier >= FULL_STACK_FACTOR ? <div key={`halo-${stack.stackBonusKey ?? ""}`} className="pile-halo" aria-hidden="true" /> : null}
         {stack.cards.length > VISIBLE_FACES ? <div className="pile-thickness" data-testid={`thickness-${stack.color}`} aria-hidden="true" /> : null}
         {stack.cards.map((card, index) => {
           const depth = stack.cards.length - 1 - index;
@@ -121,37 +163,36 @@ const Pile = forwardRef<HTMLDivElement, PileProps>(function Pile({ stack, showPr
         })}
         {stack.boostKey ? <div key={`flash-${stack.boostKey}`} className="pile-flash" aria-hidden="true" /> : null}
         {stack.bonusHot ? (
-          <div key={`bonus-${stack.fullStackKey ?? ""}`} className="pile-bonus" data-testid={`stack-bonus-${stack.color}`} role="status">
+          <div
+            key={`bonus-${stack.stackBonusKey ?? ""}`}
+            className={`pile-bonus ${superHot ? "is-super" : ""}`}
+            data-testid={`stack-bonus-${stack.color}`}
+            role="status"
+          >
             <span className="pile-bonus-rays" aria-hidden="true" />
             <p className="pile-bonus-ribbon">
-              <span>Stack bonus</span>
-              <strong>×{FULL_STACK_FACTOR}</strong>
+              <span>{superHot ? "Super stack" : "Stack bonus"}</span>
+              <strong>
+                {superHot && stack.bonusFromFactor === FULL_STACK_FACTOR ? <s>×{FULL_STACK_FACTOR}</s> : null}
+                ×{tier}
+              </strong>
             </p>
           </div>
         ) : null}
       </div>
-      <footer className="pile-total">
-        <span className="pile-count" data-testid={`count-${stack.color}`}>
-          {progress ? (
-            <em className={`pile-progress ${near ? "is-near" : ""}`} data-testid={`progress-${stack.color}`} aria-label={`${count} of ${FULL_STACK_COUNT} cards toward Stack Bonus`}>
-              <span className="pile-pips" aria-hidden="true">
-                {Array.from({ length: FULL_STACK_COUNT }, (_, index) => (
-                  <i key={index} className={index < count ? "is-on" : ""} />
-                ))}
-              </span>
-              <b>
-                {count}/{FULL_STACK_COUNT}
-              </b>
-            </em>
-          ) : occupied ? (
-            `${count} ${count === 1 ? "CARD" : "CARDS"}`
-          ) : (
-            "—"
-          )}
-        </span>
-        <strong data-testid={`stack-${stack.color}-total`} data-total={occupied || boosted ? formatMultiplier(stack.totalMicros) : ""}>
-          {occupied || boosted ? formatMultiplier(shownTotal) : "—"}
-        </strong>
+      <footer className="pile-foot">
+        <MilestoneRail color={stack.color} count={count} factor={tier} near={near} hot={stack.bonusHot} />
+        {occupied || boosted ? (
+          <div className="pile-total">
+            <span className="pile-count" data-testid={`count-${stack.color}`}>
+              {count} {count === 1 ? "CARD" : "CARDS"}
+            </span>
+            <strong data-testid={`stack-${stack.color}-total`} data-total={formatMultiplier(stack.totalMicros)}>
+              <small>Pile</small>
+              {formatMultiplier(shownTotal)}
+            </strong>
+          </div>
+        ) : null}
       </footer>
     </section>
   );

@@ -64,7 +64,7 @@ export function contentHeight(card: number, packRatio: number): number {
   const cardH = card * 1.4;
   const edges = PEEK_EDGES * peek;
   const tag = Math.max(22, Math.round(card * 0.13));
-  const footer = Math.max(26, Math.round(card * 0.17));
+  const footer = Math.max(58, Math.round(card * 0.32));
   const rowGap = Math.max(10, Math.round(card * 0.06));
   const thickness = 14;
   const packStack = Math.round(card * packRatio) + QUEUE_LAYERS * queueStep(card).dy;

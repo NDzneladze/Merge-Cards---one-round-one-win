@@ -73,8 +73,8 @@ describe("launch query", () => {
     const green = result.stacks.find((stack) => stack.color === "green")!;
     expect(green.cards.filter((card) => card.kind === "grey")).toHaveLength(2);
     expect(green.factor).toBe(2);
-    expect(green.fullStack).toBe(true);
-    const bonus = result.events.find((event) => event.type === "full_stack");
+    expect(green.stackBonusFactor).toBe(2);
+    const bonus = result.events.find((event) => event.type === "stack_bonus");
     // 3.20× of greens → purple 6.40× → Stack Bonus 12.80×.
     expect(bonus).toMatchObject({ color: "green", count: 10, stackTotalMicros: 12_800_000n });
     expect(result.openedPacks).toBe(3);

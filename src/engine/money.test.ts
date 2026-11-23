@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { boardTotal, formatMicros, formatMultiplier, payoutMicros, stackTotal, valueToMicros } from "./money";
 import type { StackState } from "./types";
 
-const stack = (color: StackState["color"], values: bigint[], factor = 1, fullStack = false): StackState => ({
+const stack = (color: StackState["color"], values: bigint[], factor = 1, stackBonusFactor = 1): StackState => ({
   color,
   factor,
-  fullStack,
+  stackBonusFactor,
   cards: values.map((valueMicros, index) => ({ kind: "value", id: `${color}${index}`, color, valueMicros })),
 });
 
@@ -17,17 +17,21 @@ describe("fixed-point money", () => {
     expect(boardTotal([green, blue, stack("gold", [])])).toBe(1_970_000n);
     expect(formatMultiplier(1_970_000n)).toBe("1.97×");
     expect(formatMultiplier(0n)).toBe("0.00×");
-    const stacked = stack("green", [310_000n, 150_000n], 2, true);
-    // (0.31 + 0.15) × purple 2 × full stack 2
+    const stacked = stack("green", [310_000n, 150_000n], 2, 2);
+    // (0.31 + 0.15) × purple 2 × stack 2
     expect(stackTotal(stacked)).toBe(1_840_000n);
+    const upgraded = stack("green", [310_000n, 150_000n], 2, 4);
+    // The ×4 tier replaces ×2. It is not ×2 × ×4.
+    expect(stackTotal(upgraded)).toBe(3_680_000n);
+    expect(stackTotal(upgraded)).not.toBe(stackTotal(stacked) * 4n);
   });
 
   it("counts a grey card in the pile as 0×", () => {
-    const green = stack("green", [310_000n, 150_000n], 2, true);
+    const green = stack("green", [310_000n, 150_000n], 2, 2);
     const withGrey: StackState = { ...green, cards: [...green.cards, { kind: "grey", id: "x1" }, { kind: "grey", id: "x2" }] };
     expect(withGrey.cards).toHaveLength(4);
     expect(stackTotal(withGrey)).toBe(stackTotal(green));
-    expect(stackTotal({ color: "blue", factor: 4, fullStack: true, cards: [{ kind: "grey", id: "x3" }] })).toBe(0n);
+    expect(stackTotal({ color: "blue", factor: 4, stackBonusFactor: 4, cards: [{ kind: "grey", id: "x3" }] })).toBe(0n);
   });
 
   it("rounds display half away from zero at the cent", () => {
