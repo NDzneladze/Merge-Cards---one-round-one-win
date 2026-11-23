@@ -35,6 +35,37 @@ describe("launch query", () => {
     expect(readLaunch("?fixture=showcase&slow=4")?.script).toBe(readLaunch("?fixture=showcase")?.script);
   });
 
+  it("scripts purple onto the bigger physical pile, greys included, even when the other pile is worth more", () => {
+    const launch = readLaunch("?fixture=purplecount&at=boost:1");
+    const result = resolveRound({ seed: launch!.seed, stake: 1, difficulty: "medium", script: launch!.script });
+    const green = result.stacks.find((stack) => stack.color === "green")!;
+    const blue = result.stacks.find((stack) => stack.color === "blue")!;
+    expect(green.cards.filter((card) => card.kind === "grey")).toHaveLength(2);
+    expect(green.cards).toHaveLength(6);
+    expect(blue.cards).toHaveLength(4);
+    expect(result.events.find((event) => event.type === "boost")).toMatchObject({
+      color: "green",
+      stackTotalMicros: 600_000n,
+    });
+    expect(green.factor).toBe(2);
+    expect(blue.factor).toBe(1);
+    expect(result.multiplierMicros).toBe(12_800_000n);
+  });
+
+  it("scripts purple onto a grey-only pile at 0× and keeps the factor for the value card", () => {
+    const launch = readLaunch("?fixture=purplegrey");
+    const result = resolveRound({ seed: launch!.seed, stake: 1, difficulty: "easy", script: launch!.script });
+    expect(result.events.find((event) => event.type === "boost")).toMatchObject({
+      color: "blue",
+      stackTotalMicros: 0n,
+      stackFactor: 2,
+    });
+    expect(result.stacks.find((stack) => stack.color === "blue")).toMatchObject({ factor: 2, cards: expect.any(Array) });
+    expect(result.multiplierMicros).toBe(3_000_000n);
+    const steps = buildTimeline(result.events);
+    expect(appliedFor(steps, "boost:1")).toBeLessThan(appliedFor(steps, "end"));
+  });
+
   it("scripts the v0.10 showcase: +1 PACK, a grey in a pile, purple, then Stack Bonus on a grey 10th card", () => {
     const launch = readLaunch("?fixture=showcase");
     expect(launch?.difficulty).toBe("medium");

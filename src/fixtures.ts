@@ -31,7 +31,18 @@ export function green27Script(): ScriptedDraw[] {
   return slots;
 }
 
-export type FixtureId = "green27" | "partial" | "waiting" | "bust" | "grey" | "fullstack" | "showcase" | "easy" | "hard";
+export type FixtureId =
+  | "green27"
+  | "partial"
+  | "waiting"
+  | "bust"
+  | "grey"
+  | "fullstack"
+  | "showcase"
+  | "purplecount"
+  | "purplegrey"
+  | "easy"
+  | "hard";
 
 export type Fixture = {
   id: FixtureId;
@@ -91,6 +102,26 @@ export const FIXTURES: Record<FixtureId, Fixture> = {
       g(0.5), b(1.6), g(0.4), g(0.3), b(1.2), g(0.4),
       g(0.4), purple, greyTo("green"), b(1.4), g(0.2), g(0.1),
     ],
+  },
+  /**
+   * Green holds 3 prizes + 2 greys (5 cards, 0.30×). Blue holds 4 prizes (12.00×).
+   * Purple follows the physical count and doubles green, then a later green is doubled too.
+   */
+  purplecount: {
+    id: "purplecount",
+    seed: "fixture-purplecount",
+    difficulty: "medium",
+    script: [g(0.1), g(0.1), g(0.1), greyTo("green"), greyTo("green"), extra, b(3), b(3), b(3), b(3), purple, g(0.1)],
+  },
+  /**
+   * Blue holds only greys. Purple lands there at 0×. The blue card that arrives
+   * afterwards is multiplied, so the factor is visible as 2.00×.
+   */
+  purplegrey: {
+    id: "purplegrey",
+    seed: "fixture-purplegrey",
+    difficulty: "easy",
+    script: [greyTo("blue"), greyTo("blue"), purple, b(1), g(0.5), g(0.5)],
   },
   easy: {
     id: "easy",

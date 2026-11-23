@@ -8,10 +8,10 @@ export type FeaturedSeed = {
 };
 
 /**
- * Pinned demo seeds for the v0.8 weights, replayed under the v0.10 rules
- * (grey joins a pile and counts toward Stack Bonus). Outcomes are locked by
- * tests. They are illustrations, not a math sample. Grey, Stack bonus and
- * Stack + purple are natural deals, not scripted hands.
+ * Pinned demo seeds. Outcomes are locked by tests. They are illustrations,
+ * not a math sample. Grey, Stack bonus and Stack + purple are natural deals,
+ * not scripted hands. The v0.11 denomination shift left these seeds on the
+ * same outcomes.
  */
 export const FEATURED_SEEDS: readonly FeaturedSeed[] = [
   { id: "chain", label: "Pack chain", seed: "demo-282", difficulty: "medium" },
