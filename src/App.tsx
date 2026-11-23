@@ -3,12 +3,13 @@ import { playCue, resumeAudio } from "./audio";
 import { BetPanel } from "./components/BetPanel";
 import { InfoModal } from "./components/InfoModal";
 import { PackStage } from "./components/PackStage";
-import { DEFAULT_STAKE, MICRO, STARTING_BALANCE_CREDITS } from "./engine/config";
+import { DEFAULT_DIFFICULTY, DEFAULT_STAKE, DIFFICULTIES, MICRO, STARTING_BALANCE_CREDITS } from "./engine/config";
+import type { FeaturedSeed } from "./engine/featured";
 import { creditsToMicros, formatMicros } from "./engine/money";
 import { createRoundSeed } from "./engine/rng";
 import { resolveRound } from "./engine/round";
-import type { RoundResult } from "./engine/types";
-import { buildTimeline, initialScene, reduceSteps, type Step } from "./playback/scene";
+import type { Difficulty, RoundResult } from "./engine/types";
+import { buildTimeline, initialScene, reduceSteps, sceneFor, type Step } from "./playback/scene";
 import { delayFor, type PlaybackSpeed } from "./playback/timing";
 import "./styles.css";
 
@@ -54,6 +55,7 @@ function cueFor(step: Step): Parameters<typeof playCue>[0] | null {
       return "bust";
     case "settle":
       if (step.outcome === "bust" || step.multiplierMicros === 0n) return "lose";
+      if (step.tier === "return" || step.tier === "even") return "land";
       return step.tier === "win" ? "win" : "bigwin";
     default:
       return null;
@@ -65,6 +67,7 @@ export function App() {
   const [stake, setStake] = useState(DEFAULT_STAKE);
   const [speed, setSpeed] = useState<PlaybackSpeed>("1x");
   const [seed, setSeed] = useState("");
+  const [difficulty, setDifficulty] = useState<Difficulty>(DEFAULT_DIFFICULTY);
   const [muted, setMuted] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [round, setRound] = useState<ActiveRound | null>(null);
@@ -125,8 +128,11 @@ export function App() {
   }, [done, round]);
 
   const scene = useMemo(
-    () => (round ? reduceSteps(round.steps.slice(0, applied)) : initialScene()),
-    [round, applied],
+    () =>
+      round
+        ? reduceSteps(round.steps.slice(0, applied), sceneFor(round.result))
+        : initialScene(difficulty, DIFFICULTIES[difficulty].colors),
+    [round, applied, difficulty],
   );
 
   const affordable = Number(balance / MICRO);
@@ -142,7 +148,7 @@ export function App() {
     if (!canPlay) return;
     resumeAudio();
     const chosen = seed.trim() || createRoundSeed();
-    const result = resolveRound({ seed: chosen, stake });
+    const result = resolveRound({ seed: chosen, stake, difficulty });
     const stakeMicros = creditsToMicros(stake);
     setBalance((current) => {
       const next = current - stakeMicros;
@@ -151,6 +157,12 @@ export function App() {
     });
     settledFor.current = null;
     setRound({ playId: crypto.randomUUID(), result, steps: buildTimeline(result.events) });
+  }
+
+  function pickExample(example: FeaturedSeed) {
+    if (playing) return;
+    setSeed(example.seed);
+    setDifficulty(example.difficulty);
   }
 
   function refill() {
@@ -165,7 +177,7 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <h1>Merge Packs</h1>
-          <p className="eyebrow">Prototype v0.4 · placeholder math · demo credits</p>
+          <p className="eyebrow">Prototype v0.5 · placeholder math · demo credits</p>
         </div>
         <div className="topbar-right">
           <div className="credits">
@@ -193,10 +205,15 @@ export function App() {
         broke={broke}
         speed={speed}
         seed={seed}
+        difficulty={difficulty}
         onStake={setStake}
         onPlay={play}
         onSpeed={setSpeed}
         onSeed={setSeed}
+        onDifficulty={(next) => {
+          if (!playing) setDifficulty(next);
+        }}
+        onExample={pickExample}
         onRefill={refill}
       />
 

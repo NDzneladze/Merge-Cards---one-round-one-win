@@ -1,7 +1,9 @@
-/** Left-to-right order of the stack compartments on the board. */
+/** Left-to-right order of the card piles on the board. A difficulty uses a subset. */
 export const STACK_COLORS = ["green", "blue", "gold"] as const;
 
 export type StackColor = (typeof STACK_COLORS)[number];
+
+export type Difficulty = "easy" | "medium" | "hard";
 
 /** Everything a pack can contain. */
 export type CardKind = StackColor | "purple" | "red" | "extra";
@@ -21,7 +23,12 @@ export type StackState = {
   factor: number;
 };
 
-export type WinTier = "none" | "win" | "big" | "huge" | "mega";
+/**
+ * none: 0× (red card, or nothing collected) · return: below 1× (gross payout
+ * is a net loss) · even: exactly 1× · win: above 1× · big/huge/mega: the
+ * celebrated tiers from `WIN_TIERS`.
+ */
+export type WinTier = "none" | "return" | "even" | "win" | "big" | "huge" | "mega";
 
 export type RoundOutcome = "bust" | "resolved";
 
@@ -70,19 +77,24 @@ export type ScriptedDraw =
 export type RoundResult = {
   seed: string;
   stake: number;
+  difficulty: Difficulty;
+  /** Prize colours in play, in board order. */
+  colors: readonly StackColor[];
   events: readonly RoundEvent[];
   outcome: RoundOutcome;
   /** 1_000_000n === 1.00×. Zero after a red card. */
   multiplierMicros: bigint;
-  /** stake credits × multiplier, in credit micros (1 credit = 1_000_000n). */
+  /** Gross return: stake credits × multiplier, in credit micros (1 credit = 1_000_000n). */
   payoutMicros: bigint;
+  /** Gross return minus the stake. Negative on a bust or a sub-1× return. */
+  netMicros: bigint;
   tier: WinTier;
   openedPacks: number;
   /** +1 PACK cards revealed, including any later cancelled by a red card. */
   earnedPacks: number;
   /** Packs still queued when the red card hit. Zero on a safe finish. */
   cancelledPacks: number;
-  /** Final board. Every stack is empty after a red card. */
+  /** Final board, eligible colours only, in board order. Every stack is empty after a red card. */
   stacks: readonly StackState[];
   /** Board value wiped by the red card. Zero on a safe finish. */
   lostMicros: bigint;
