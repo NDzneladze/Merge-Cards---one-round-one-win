@@ -89,29 +89,38 @@ function CardBody({ card }: { card: Card }) {
       </>
     );
   }
+  if (card.kind === "grey") {
+    return (
+      <>
+        <Corner value="0×" mark="grey" />
+        <div className="card-center">
+          <Blank className="card-watermark" />
+          <strong className="card-value">0×</strong>
+          <span className="card-kind">Empty</span>
+        </div>
+        <Corner value="0×" mark="grey" foot />
+      </>
+    );
+  }
   return (
-    <>
-      <Corner value="STOP" mark="red" />
-      <div className="card-center">
-        <Skull className="card-watermark" />
-        <strong className="card-value">STOP</strong>
-        <span className="card-kind">0× bust</span>
-      </div>
-      <Corner value="STOP" mark="red" foot />
-    </>
-  );
-}
-
-function Corner({ value, tone, mark, foot = false }: { value: string; tone?: StackColor; mark?: "purple" | "extra" | "red"; foot?: boolean }) {
-  return (
-    <div className={`card-corner ${foot ? "is-foot" : ""} ${mark === "red" ? "is-plain" : ""}`}>
-      <span className="card-corner-value">{value}</span>
-      {mark === "red" ? null : <Mark tone={tone ?? mark ?? "green"} className="card-pip" />}
+    <div className="card-center card-center-stop">
+      <Skull className="card-stop-mark" />
+      <strong className="card-value">STOP</strong>
+      <span className="card-kind">0×</span>
     </div>
   );
 }
 
-type MarkTone = StackColor | "purple" | "extra" | "red";
+function Corner({ value, tone, mark, foot = false }: { value: string; tone?: StackColor; mark?: "purple" | "extra" | "grey"; foot?: boolean }) {
+  return (
+    <div className={`card-corner ${foot ? "is-foot" : ""}`}>
+      <span className="card-corner-value">{value}</span>
+      <Mark tone={tone ?? mark ?? "green"} className="card-pip" />
+    </div>
+  );
+}
+
+type MarkTone = StackColor | "purple" | "extra" | "red" | "grey";
 
 export function Mark({ tone, className = "" }: { tone: MarkTone; className?: string }) {
   if (tone === "blue") return <Diamond className={className} />;
@@ -119,6 +128,7 @@ export function Mark({ tone, className = "" }: { tone: MarkTone; className?: str
   if (tone === "purple") return <Star className={className} />;
   if (tone === "extra") return <Ticket className={className} />;
   if (tone === "red") return <Skull className={className} />;
+  if (tone === "grey") return <Blank className={className} />;
   return <Gem className={className} />;
 }
 
@@ -165,6 +175,16 @@ export function Ticket({ className = "" }: { className?: string }) {
         fill="currentColor"
         d="M6 3.2h12A1.8 1.8 0 0 1 19.8 5v2.2a2.2 2.2 0 0 0 0 4.1V14a1.8 1.8 0 0 1-1.8 1.8H6A1.8 1.8 0 0 1 4.2 14V11.3a2.2 2.2 0 0 0 0-4.1V5A1.8 1.8 0 0 1 6 3.2Zm2.2 3.1v6.2h1.5V6.3H8.2Zm3 0v6.2H13V6.3h-1.8Zm3.1 0v6.2h1.5V6.3h-1.5ZM7 17.6h10v1.7H7v-1.7Z"
       />
+    </svg>
+  );
+}
+
+/** Flat blank for a grey card. A ring, not a prize pip. */
+export function Blank({ className = "" }: { className?: string }) {
+  return (
+    <svg className={`glyph ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="7.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" />
     </svg>
   );
 }

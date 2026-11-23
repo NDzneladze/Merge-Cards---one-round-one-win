@@ -31,7 +31,7 @@ const pileColors = () => [...document.querySelectorAll(".pile")].map((pile) => p
 describe("App", () => {
   it("plays a +1 PACK chain from one stake, keeps the boost across packs, shows the HUD-only win badge, and debits the stake once per round", async () => {
     const user = userEvent.setup();
-    const seed = "demo-97";
+    const seed = "demo-14";
     const stake = 10;
     const engine = resolveRound({ seed, stake, difficulty: "medium" });
     expect(engine.tier).toBe("win");
@@ -90,7 +90,7 @@ describe("App", () => {
 
   it("Easy with small greens finishes below 1×: payout is shown as a return, never a win", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-6", stake: 10, difficulty: "easy" });
+    const engine = resolveRound({ seed: "demo-21", stake: 10, difficulty: "easy" });
     expect(engine.tier).toBe("return");
     expect(engine.multiplierMicros).toBe(700_000n);
     render(<App />);
@@ -132,7 +132,7 @@ describe("App", () => {
 
   it("Hard deals only Blue and Gold into two piles", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-10", stake: 10, difficulty: "hard" });
+    const engine = resolveRound({ seed: "demo-141", stake: 10, difficulty: "hard" });
     expect(engine.tier).toBe("big");
     render(<App />);
     await openExamples(user);
@@ -147,7 +147,7 @@ describe("App", () => {
 
   it("plays the featured Red seed: two boosters wait under the pack, then red busts at 0× and cancels both", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-441", stake: 10, difficulty: "medium" });
+    const engine = resolveRound({ seed: "demo-70", stake: 10, difficulty: "medium" });
     expect(engine.cancelledPacks).toBe(2);
     render(<App />);
     await openExamples(user);
@@ -157,7 +157,9 @@ describe("App", () => {
     expect(screen.getByTestId("total-meter")).toHaveTextContent("0.00×");
     expect(screen.getByTestId("payout-meter")).toHaveTextContent("0.00");
     expect(meterOf("payout-meter")).toHaveTextContent("net −10.00");
-    expect(screen.getByTestId("red-strike")).toBeInTheDocument();
+    expect(screen.queryByTestId("red-strike")).toBeNull();
+    expect(screen.getByTestId("pack")).toHaveClass("pack-dead");
+    expect(screen.queryByText("STOP")).toBeNull();
     expect(screen.getByTestId("pack-stack")).toHaveClass("boosters-dead");
     expect(screen.getByTestId("pack-stack")).toHaveAttribute("data-waiting", "2");
     expect(screen.getByTestId("booster-1")).toBeInTheDocument();
@@ -178,7 +180,7 @@ describe("App", () => {
 
   it("stacks boosters under the pack while a chain is pending and counts them", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-1725", stake: 10, difficulty: "medium" });
+    const engine = resolveRound({ seed: "demo-282", stake: 10, difficulty: "medium" });
     expect(engine.openedPacks).toBe(3);
     render(<App />);
     await openExamples(user);
@@ -193,7 +195,7 @@ describe("App", () => {
 
   it("opens the short celebration from 10× with a count-up and lets it be dismissed", async () => {
     const user = userEvent.setup();
-    const engine = resolveRound({ seed: "demo-105", stake: 10, difficulty: "medium" });
+    const engine = resolveRound({ seed: "demo-104", stake: 10, difficulty: "medium" });
     expect(engine.tier).toBe("big");
     render(<App />);
     await openExamples(user);
@@ -220,6 +222,8 @@ describe("App", () => {
     expect(dialog).toHaveTextContent(/PURPLE/);
     expect(dialog).toHaveTextContent(/\+1 PACK/);
     expect(dialog).toHaveTextContent(/RED/);
+    expect(dialog).toHaveTextContent(/GREY/);
+    expect(dialog).toHaveTextContent(/FULL STACK/);
     expect(dialog).toHaveTextContent(/Easy/);
     expect(dialog).toHaveTextContent(/Hard/);
     expect(dialog).toHaveTextContent(/Not a validated RTP/);

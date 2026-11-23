@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, GREEN_VALUES, MAX_PACKS, PURPLE_FACTOR, WIN_TIERS } from "../engine/config";
+import { CELEBRATION_MIN_MICROS, DIFFICULTIES, DIFFICULTY_ORDER, FULL_STACK_COUNT, FULL_STACK_FACTOR, GREEN_VALUES, MAX_PACKS, PURPLE_FACTOR, WIN_TIERS } from "../engine/config";
 import { valueBounds } from "../engine/draw";
 import { formatMultiplier } from "../engine/money";
 import { labelColor } from "../playback/scene";
@@ -47,8 +47,16 @@ export function InfoModal({ onClose }: Props) {
           <li>Pick a difficulty, set a stake, press Play. One stake opens one pack of six cards.</li>
           <li>Each card launches upward out of the pack, flips in the air and tucks into the pile of its colour. A pile is worth the sum of its cards.</li>
           <li>
-            <strong>PURPLE</strong> lands on the pile with the most cards and multiplies it by ×{PURPLE_FACTOR}. Ties go
-            to the highest total, then to the leftmost pile. Boosts stack with each other.
+            <strong>PURPLE</strong> lands on the pile with the most value cards and multiplies it by ×{PURPLE_FACTOR}. Ties go
+            to the highest boosted total, then to the leftmost pile. Boosts stack with each other, and with Full Stack.
+          </li>
+          <li>
+            <strong>GREY</strong> is an empty card, 0×. It uses one of the six slots, then leaves the table. It does not
+            bust, join a pile, earn a pack, or count toward Full Stack.
+          </li>
+          <li>
+            <strong>FULL STACK ×{FULL_STACK_FACTOR}</strong> happens once, when one colour pile reaches {FULL_STACK_COUNT} value
+            cards. Later cards in that pile stay doubled. A second pile can unlock on its own. Red wipes it.
           </li>
           <li>
             <strong>+1 PACK</strong> slides a bonus pack in under the current one. Its cards join the same piles,
@@ -56,12 +64,13 @@ export function InfoModal({ onClose }: Props) {
             cap is reached.
           </li>
           <li>
-            <strong>RED</strong> ends the whole round instantly at 0×. Every pile, every remaining card and every
-            waiting pack is cancelled.
+            <strong>RED</strong> strikes and leaves. The whole round ends at 0×. Every pile, every Full Stack and every
+            waiting pack is cancelled. A round of only grey cards is a no-win 0×, not a bust.
           </li>
           <li>
-            The total shown during the round is potential. It pays once, after the last pack, if no red appeared. A
-            result below 1.00× is a return smaller than the stake; above 1.00× is a win.
+            The total shown during the round is potential. It pays once, after the last pack, if no red appeared. Above
+            1.00× is a win. Exactly 1.00× breaks even. A payout above zero and below 1.00× is a return. Zero without a
+            red card is no win.
           </li>
         </ul>
         <h3>Difficulty</h3>
@@ -73,7 +82,10 @@ export function InfoModal({ onClose }: Props) {
                 <tr key={id}>
                   <th>{mode.label}</th>
                   <td>{mode.colors.map(labelColor).join(" + ")}</td>
-                  <td>Red {pct(mode.weights.red)} · +1 {pct(mode.weights.extra)} · Purple {pct(mode.weights.purple)}</td>
+                  <td>
+                    Red {pct(mode.weights.red)} · Grey {pct(mode.weights.grey)} · +1 {pct(mode.weights.extra)} · Purple{" "}
+                    {pct(mode.weights.purple)}
+                  </td>
                 </tr>
               );
             })}

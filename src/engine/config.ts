@@ -5,11 +5,16 @@ import type { CardKind, Difficulty, StackColor, WinTier } from "./types";
  * prototype knob: NOT a validated RTP, NOT certified, NOT for real money.
  * `npm run simulate` reports what the current knobs produce per difficulty.
  */
-export const DEMO_CONFIG_ID = "merge-packs-demo-v0.5";
+export const DEMO_CONFIG_ID = "merge-packs-demo-v0.8";
 
 export const MICRO = 1_000_000n;
 
-export const KIND_ORDER = ["green", "blue", "gold", "purple", "red", "extra"] as const satisfies readonly CardKind[];
+/**
+ * Draw order for the weighted roll. Grey is its own bucket: it is not a
+ * re-labelled green, and a mode can change `weights.grey` without touching
+ * the green table.
+ */
+export const KIND_ORDER = ["green", "blue", "gold", "grey", "purple", "red", "extra"] as const satisfies readonly CardKind[];
 
 export type Weights = Record<CardKind, number>;
 
@@ -18,6 +23,16 @@ export const MAX_PACKS = 6;
 
 /** A purple card multiplies the targeted stack by this factor. Boosts compound. */
 export const PURPLE_FACTOR = 2;
+
+/**
+ * Value cards in ONE colour pile that unlock Full Stack once per round.
+ * The 10th card triggers it. The 11th, 20th and 30th do not trigger again.
+ * Prototype rule, not an approved production bonus.
+ */
+export const FULL_STACK_COUNT = 10;
+
+/** Applied once, as `(fullStack ? FULL_STACK_FACTOR : 1)`, on top of purple. */
+export const FULL_STACK_FACTOR = 2;
 
 export type ValueDistribution =
   /** Uniform on an inclusive step grid. */
@@ -121,11 +136,23 @@ export type DifficultyConfig = {
 export const DIFFICULTY_ORDER = ["easy", "medium", "hard"] as const satisfies readonly Difficulty[];
 
 /**
- * Per-mode draw weights in per-mille. Purple, Red and +1 PACK exist in every
- * mode. The knobs are set so each mode's placeholder mean sits a little
- * below 1× (≈ 0.93–0.94× at 50k rounds) and Hard is never the better pick:
- * every Hard prize card is worth ≥ 1×, so Hard carries a much heavier Red
- * and a lighter +1. `npm run simulate` prints the current numbers.
+ * Experimental v0.8 weights, per-mille, summing to 1000. NOT certified RTP.
+ *
+ * v0.7 weights are invalid here: Grey removes prize cards, and Full Stack
+ * doubles a pile that reaches 10 value cards. Each mode has its own grey
+ * weight. Grey is never copied from that mode's green weight.
+ *
+ * Hard keeps a 29% red card (the v0.7 rate). That is the extreme-risk knob.
+ * Grey on Hard is taken from Blue, not from Red, so the bust rate is not
+ * softened to chase the 0.94–0.96× tuning hypothesis. `npm run simulate`
+ * prints what these knobs actually do.
+ *
+ * Chosen after 20k-round probes so the demo mean sits near 0.94–0.96×.
+ * Hard's red weight stays 29.0%, the v0.7 rate. Grey was not taken out of Red.
+ *
+ * Easy   green 72.4 · blue 2.0 · grey 8.8 · purple 2.4 · red 7.8 · +1 6.6
+ * Medium green 70.4 · blue 2.2 · gold 0.5 · grey 9.4 · purple 1.8 · red 9.6 · +1 6.1
+ * Hard   blue 58.6 · gold 1.6 · grey 5.0 · purple 2.6 · red 29.0 · +1 3.2
  */
 export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
   easy: {
@@ -133,7 +160,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Easy",
     colors: ["green", "blue"],
     blurb: "Green + Blue · frequent small returns",
-    weights: { green: 835, blue: 20, gold: 0, purple: 25, red: 70, extra: 50 },
+    weights: { green: 724, blue: 20, gold: 0, grey: 88, purple: 24, red: 78, extra: 66 },
     values: VALUE_TABLES,
   },
   medium: {
@@ -141,7 +168,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Medium",
     colors: ["green", "blue", "gold"],
     blurb: "Green + Blue + Gold · balanced",
-    weights: { green: 820, blue: 22, gold: 4, purple: 18, red: 88, extra: 48 },
+    weights: { green: 704, blue: 22, gold: 5, grey: 94, purple: 18, red: 96, extra: 61 },
     values: VALUE_TABLES,
   },
   hard: {
@@ -149,7 +176,7 @@ export const DIFFICULTIES: Record<Difficulty, DifficultyConfig> = {
     label: "Hard",
     colors: ["blue", "gold"],
     blurb: "Blue + Gold only · mostly busts, heavy hits",
-    weights: { green: 0, blue: 630, gold: 10, purple: 30, red: 290, extra: 40 },
+    weights: { green: 0, blue: 586, gold: 16, grey: 50, purple: 26, red: 290, extra: 32 },
     values: VALUE_TABLES_HARD,
   },
 };
